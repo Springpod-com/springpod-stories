@@ -2,12 +2,16 @@ import "server-only";
 import type { JobData, QueueName } from "./jobs";
 import { giveUp, processMedia, transcribeMedia } from "./media-jobs";
 import { runPrescreen } from "./prescreen";
+import { renderQuoteCards } from "./quote-cards";
+import { retentionSweep } from "./retention";
 
 /** What runs each job, for the worker (and inline in tests). Returns a short outcome for the log. */
 export const HANDLERS: { [Q in QueueName]: (data: JobData[Q]) => Promise<string> } = {
   "media-process": ({ mediaId }) => processMedia(mediaId),
   "media-transcribe": ({ mediaId }) => transcribeMedia(mediaId),
   "story-prescreen": ({ storyId }) => runPrescreen(storyId),
+  "quote-card-render": ({ storyId }) => renderQuoteCards(storyId),
+  "retention-sweep": () => retentionSweep(),
 };
 
 /** After the last retry. */

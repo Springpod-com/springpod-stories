@@ -4,6 +4,21 @@ import { join } from "node:path";
 /** Where the console email provider writes emails during end-to-end tests. */
 export const OUTBOX_DIR = ".e2e-outbox";
 
+/** The newest email of `template` sent to `to`. */
+export function emailFor(template: string, to: string): { to: string; subject: string; text: string } | null {
+  let files: string[] = [];
+  try {
+    files = readdirSync(OUTBOX_DIR).filter((f) => f.endsWith(`${template}.json`)).sort();
+  } catch {
+    return null;
+  }
+  for (const file of files.reverse()) {
+    const message = JSON.parse(readFileSync(join(OUTBOX_DIR, file), "utf8")) as { to: string; subject: string; text: string };
+    if (message.to === to) return message;
+  }
+  return null;
+}
+
 /** The newest link to `path` in an email of `template` sent to `to`, as a path. */
 function linkFor(template: string, path: string, to: string): string | null {
   let files: string[] = [];

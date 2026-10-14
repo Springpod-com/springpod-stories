@@ -204,6 +204,10 @@ model Story {
 
   createdAt     DateTime       @default(now())
   submittedAt   DateTime?
+  approvedAt    DateTime?      // added: when the team approved it (PRD 14 "Approved" email)
+  publishedAt   DateTime?      // added: marked published from the admin (PRD 14 "Published" email)
+  publishedUrl  String?        // added: the link to share in the "Published" email
+  withdrawnAt   DateTime?      // added: "Remove my story" (PRD 9.3)
   updatedAt     DateTime       @updatedAt
 
   consent        Consent?

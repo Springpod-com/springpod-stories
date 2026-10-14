@@ -60,3 +60,8 @@ export async function peekToken(tx: Tx, raw: string, purpose: TokenPurpose): Pro
   if (token.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
   return { ok: true, token, firstUse: !token.usedAt };
 }
+
+/** A "Remove my story" link for an email (PRD 9.3). A new one per email; each works until used. */
+export async function newRemoveToken(tx: Tx, storyId: string): Promise<string> {
+  return createToken(tx, { purpose: "remove_story", storyId });
+}

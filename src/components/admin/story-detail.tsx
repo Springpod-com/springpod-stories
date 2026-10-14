@@ -6,7 +6,11 @@ import { QuoteCard } from "@/components/quote-card/quote-card";
 import { CHANNELS } from "@/flow/options";
 import { fmtTime } from "@/lib/media/checks";
 import { TEAM_CHECKS, type StoryDetail as Detail } from "@/lib/server/admin";
+import { Button } from "@springpod/design-system/components/ui/button";
+import type { PackView } from "@/lib/server/content-pack";
+import { ContentPack } from "./content-pack";
 import { StatusBadge, TrustBadge } from "./labels";
+import { PublishPanel } from "./publish-panel";
 import { ResolveFlag } from "./resolve-flag";
 import { ReviewPanel } from "./review-panel";
 
@@ -20,7 +24,18 @@ const FLAG_VARIANT = {
 } as const;
 
 /** One story, as in `design/screens/42-admin-queue-video-checks.png` (PRD 11.2). */
-export function StoryDetail({ story, review }: { story: Detail; review: { blockers: string[]; canDecide: { changes: boolean; reject: boolean }; safeguardingOpen: boolean } }) {
+export function StoryDetail({
+  story,
+  review,
+  pack,
+  canMakePack,
+}: {
+  story: Detail;
+  review: { blockers: string[]; canDecide: { changes: boolean; reject: boolean }; safeguardingOpen: boolean };
+  /** Shown for stories in review or approved (PRD 12). */
+  pack: PackView | null;
+  canMakePack: boolean;
+}) {
   const f = story.facts;
   const facts: [string, string][] = [
     ["Name shown", f.nameShown],
@@ -135,6 +150,25 @@ export function StoryDetail({ story, review }: { story: Detail; review: { blocke
             Automated{media.checksSource === "browser" ? " (browser only; the server checks haven't run)" : ""}
           </span>
           <CheckList checks={media.checks} className="rounded-xl border border-border p-4" />
+          {media.downloads && (
+            <div className="flex flex-wrap gap-3" aria-label="Downloads">
+              {media.downloads.media && (
+                <Button asChild variant="outline" size="sm">
+                  <a href={media.downloads.media}>{media.kind === "video" ? "Download video (MP4)" : "Download voice note (M4A)"}</a>
+                </Button>
+              )}
+              {media.downloads.captions && (
+                <Button asChild variant="outline" size="sm">
+                  <a href={media.downloads.captions}>Download captions (SRT)</a>
+                </Button>
+              )}
+              {media.downloads.poster && (
+                <Button asChild variant="outline" size="sm">
+                  <a href={media.downloads.poster}>Download poster frame</a>
+                </Button>
+              )}
+            </div>
+          )}
         </section>
       )}
 
@@ -149,6 +183,13 @@ export function StoryDetail({ story, review }: { story: Detail; review: { blocke
         parentPending={story.parentPending}
         trust={story.trust}
       />
+      {story.status === "approved" && <PublishPanel storyId={story.id} published={story.published} />}
+      {pack && (
+        <>
+          <Separator />
+          <ContentPack storyId={story.id} view={pack} canMake={canMakePack} />
+        </>
+      )}
       {story.decision?.reason && (
         <p className="ds-p4 text-muted-foreground">
           {story.decision.decision === "rejected" ? "Rejected" : "Changes requested"}: {story.decision.reason}

@@ -6,6 +6,7 @@ import { QueueFilters } from "@/components/admin/queue-filters";
 import { QueueList } from "@/components/admin/queue-list";
 import { StoryDetail } from "@/components/admin/story-detail";
 import { queue, storyDetail } from "@/lib/server/admin";
+import { contentPackView } from "@/lib/server/content-pack";
 import { reviewState } from "@/lib/server/review";
 import { requireStaffPage } from "@/lib/server/staff";
 import { parseFilters } from "../../queue-params";
@@ -26,6 +27,7 @@ export default async function AdminStoryPage({
   const { filters, query } = parseFilters(await searchParams);
   const [story, review, items] = await Promise.all([storyDetail(id), reviewState(id), queue(filters)]);
   if (!story || !review) notFound();
+  const pack = story.status === "in_review" || story.status === "approved" ? await contentPackView(id) : null;
   return (
     <AdminShell staff={staff}>
       <div className="hidden md:block">
@@ -39,7 +41,7 @@ export default async function AdminStoryPage({
           <Button asChild variant="link" size="sm" className="self-start px-0 md:hidden">
             <Link href={`/admin${query}`}>Back to the queue</Link>
           </Button>
-          <StoryDetail story={story} review={review} />
+          <StoryDetail story={story} review={review} pack={pack} canMakePack={staff.role === "content"} />
         </div>
       </div>
     </AdminShell>

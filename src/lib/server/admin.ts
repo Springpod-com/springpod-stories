@@ -149,7 +149,10 @@ export interface StoryDetail {
     transcript: string | null;
     checks: Check[];
     checksSource: "server" | "browser" | null;
+    /** Downloads for an approved story (PRD 12). */
+    downloads: { media: string | null; poster: string | null; captions: string | null } | null;
   };
+  published: { at: Date; url: string | null } | null;
   interview: { role: "assistant" | "user"; content: string }[];
   checklist: Checklist;
   decision: { decision: string; reason: string | null; by: string | null; at: Date | null } | null;
@@ -225,8 +228,17 @@ export async function storyDetail(id: string): Promise<StoryDetail | null> {
           transcript: m.transcriptEdited ?? m.transcriptRaw,
           checks: serverChecks ?? browserChecks ?? [],
           checksSource: serverChecks ? "server" : browserChecks ? "browser" : null,
+          downloads:
+            s.status === "approved" && m.status === "ready" && m.normalisedKey
+              ? {
+                  media: await presignRead(m.normalisedKey, `story-${s.id}.${m.kind === "video" ? "mp4" : "m4a"}`, STAFF_URL_S),
+                  poster: m.posterKey ? await presignRead(m.posterKey, `story-${s.id}-poster.jpg`, STAFF_URL_S) : null,
+                  captions: Array.isArray(m.transcriptSegments) && m.transcriptSegments.length ? `/api/admin/stories/${s.id}/captions` : null,
+                }
+              : null,
         }
       : null,
+    published: s.publishedAt ? { at: s.publishedAt, url: s.publishedUrl } : null,
     interview: s.interviewTurns,
     checklist: (s.review?.checklist as Checklist | null) ?? {},
     decision: s.review?.decision

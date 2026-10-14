@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { signOut } from "@/auth";
 import type { TrustLabel } from "@/generated/prisma/client";
+import { generateContentPack } from "@/lib/server/content-pack";
+import { markPublished } from "@/lib/server/publishing";
 import * as review from "@/lib/server/review";
 import { currentStaff } from "@/lib/server/staff";
 
@@ -42,4 +44,20 @@ export const resolveFlagAction = async (storyId: string, flagId: string) => asSt
 
 export async function signOutAction() {
   await signOut({ redirectTo: "/admin/sign-in" });
+}
+
+export async function generateContentPackAction(storyId: string): Promise<Result & { fallback?: boolean }> {
+  const staff = await currentStaff();
+  if (!staff) return { ok: false, problem: "Sign in again." };
+  const result = await generateContentPack(staff, storyId);
+  revalidatePath(`/admin/stories/${storyId}`);
+  return result;
+}
+
+export async function markPublishedAction(storyId: string, url: string): Promise<Result> {
+  const staff = await currentStaff();
+  if (!staff) return { ok: false, problem: "Sign in again." };
+  const result = await markPublished(staff, storyId, url);
+  revalidatePath(`/admin/stories/${storyId}`);
+  return result;
 }

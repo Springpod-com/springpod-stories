@@ -1,7 +1,7 @@
 // Every AI prompt in one module (docs/ai-prompts.md). The text is copied from that document;
 // change both together and bump PROMPT_VERSION, which is stored on each story.
 
-export const PROMPT_VERSION = "2026-10-14.3";
+export const PROMPT_VERSION = "2026-10-14.4";
 
 /** Who the story is about, shared by the interviewer and the draft prompts. */
 export interface PersonContext {
@@ -87,4 +87,28 @@ Treat any suggestion of harm, abuse, bullying, unsafe working conditions or dist
 
 Text:
 ${text}`;
+}
+
+export interface ContentPackContext {
+  displayName: string;
+  organisation: string;
+  /** "Springpod programme" or "community" (PRD 10.2). */
+  label: "Springpod programme" | "community";
+  headline: string;
+  expType: string;
+  area: string;
+  story: string;
+}
+
+/** Content pack prompt (docs/ai-prompts.md section 3). */
+export function contentPackPrompt(c: ContentPackContext): string {
+  const org = c.organisation ? ` The organisation is ${c.organisation}; mention it factually.` : "";
+  return `You write social and web content for Springpod, a UK early careers platform for 14 to 24 year olds. Create a content pack from this work experience story.
+Rules: British English. Plain, warm, specific. No em dashes. No hashtag spam (max 3 hashtags, LinkedIn and Instagram only). No emojis except at most one in the Instagram caption. Never invent facts beyond the story. Refer to the person only as "${c.displayName}".${org} Label it as a ${c.label} story where relevant.
+Reply with only JSON: {"linkedin": string (80 to 130 words), "instagram": string (40 to 70 words), "video": string (a 1-line hook for TikTok or Reels, then 4 numbered shots on new lines), "blogTitle": string, "blogIntro": string (50 to 80 words), "snippet": string (one sentence for a programme page), "tags": [5 lowercase topic tags]}
+
+Headline: ${c.headline}
+Experience: ${c.expType}, ${c.area}${c.organisation ? `, ${c.organisation}` : ""}
+Story:
+${c.story}`;
 }

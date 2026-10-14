@@ -27,6 +27,8 @@ async function main() {
       }
     });
   }
+  // The retention sweep runs every night at 02:30 UK time (PRD 9.3).
+  await boss.schedule("retention-sweep", "30 2 * * *", {}, { tz: "Europe/London" });
   console.log(`Media worker running (${CONCURRENCY} at a time per queue)`);
 
   const stop = async () => {

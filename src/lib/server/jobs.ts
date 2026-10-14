@@ -12,6 +12,10 @@ export const QUEUES = {
   transcribe: "media-transcribe",
   /** The AI pre-screen of a submitted story (PRD 9.4). */
   prescreen: "story-prescreen",
+  /** Quote card PNGs for the content pack and the "Published" email (PRD 12, 14). */
+  quoteCards: "quote-card-render",
+  /** Daily: deletes media, links and drafts that are past their time (PRD 9.3). */
+  retention: "retention-sweep",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -26,6 +30,8 @@ export interface JobData {
   "media-process": MediaJob;
   "media-transcribe": MediaJob;
   "story-prescreen": StoryJob;
+  "quote-card-render": StoryJob;
+  "retention-sweep": Record<string, never>;
 }
 export type SendJob = <Q extends QueueName>(queue: Q, data: JobData[Q]) => Promise<void>;
 

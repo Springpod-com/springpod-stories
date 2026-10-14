@@ -1,5 +1,6 @@
 import "server-only";
 import type { StoryStatus, TrustLabel } from "@/generated/prisma/client";
+import { DELETE_MEDIA_AFTER_DAYS, daysFromNow } from "@/lib/retention";
 import { canTransition, nextStatus } from "@/lib/status";
 import { TEAM_CHECKS, type Checklist } from "./admin";
 import { writeAudit } from "./audit";
@@ -7,8 +8,9 @@ import { db, type Tx } from "./db";
 import { sendLogged } from "./email/send";
 import { changesRequestedEmail } from "./email/templates";
 import { sendParentRequest } from "./parent";
+import { sendApprovedEmail } from "./publishing";
 import { staffLabel, type Staff } from "@/lib/staff";
-import { createToken } from "./tokens";
+import { createToken, newRemoveToken } from "./tokens";
 
 /**
  * The team's review actions (PRD 11.2). Every action re-reads the story, checks the rules on the
@@ -16,9 +18,6 @@ import { createToken } from "./tokens";
  * consent is pending, a safeguarding review is open, or a team check is unticked for a story
  * with media.
  */
-
-/** Days before media of a rejected story is deleted (PRD 9.3). */
-const REJECTED_MEDIA_DAYS = 30;
 
 export type ActionResult = { ok: true; status: StoryStatus } | { ok: false; problem: string };
 
@@ -77,18 +76,19 @@ export async function setCheck(staff: Staff, storyId: string, itemId: string, ch
 }
 
 export async function approve(staff: Staff, storyId: string): Promise<ActionResult> {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx): Promise<ActionResult> => {
     const s = await loadForReview(tx, storyId);
     if (!s) return { ok: false, problem: "not_found" };
     const blockers = approveBlockers(s);
     if (blockers.length) return { ok: false, problem: blockers[0]! };
     const status = nextStatus(s.status, "approve");
-    await tx.story.update({ where: { id: storyId }, data: { status } });
+    await tx.story.update({ where: { id: storyId }, data: { status, approvedAt: new Date() } });
     await upsertReview(tx, storyId, { decision: "approved", reason: null, decidedBy: staffLabel(staff), decidedAt: new Date() });
     await writeAudit(tx, { storyId, actorType: "staff", actorId: staff.id, action: "approved", payload: { status } });
-    // The "approved" email to the submitter arrives with the other emails in milestone 7.
     return { ok: true, status };
   });
+  if (result.ok) await sendApprovedEmail(storyId);
+  return result;
 }
 
 /** Sends the story back with a message and an edit link (PRD 11.2, 14). */
@@ -110,7 +110,13 @@ export async function requestChanges(staff: Staff, storyId: string, message: str
   if (!result.ok) return result;
   // The address is read here, server side only, to send the email.
   const submitter = await db.submitter.findUniqueOrThrow({ where: { id: result.submitterId }, select: { email: true } });
-  await sendLogged(storyId, changesRequestedEmail({ to: submitter.email, firstName: result.firstName, message: text, token: result.token }));
+  await sendLogged(storyId, changesRequestedEmail({
+      to: submitter.email,
+      firstName: result.firstName,
+      message: text,
+      token: result.token,
+      removeToken: await newRemoveToken(db, storyId),
+    }));
   return { ok: true, status: result.status };
 }
 
@@ -124,10 +130,7 @@ export async function reject(staff: Staff, storyId: string, reason: string): Pro
     const status = nextStatus(s.status, "reject");
     await tx.story.update({ where: { id: storyId }, data: { status } });
     await upsertReview(tx, storyId, { decision: "rejected", reason: text, decidedBy: staffLabel(staff), decidedAt: new Date() });
-    await tx.media.updateMany({
-      where: { storyId, deletedAt: null },
-      data: { deleteAfter: new Date(Date.now() + REJECTED_MEDIA_DAYS * 24 * 60 * 60 * 1000) },
-    });
+    await tx.media.updateMany({ where: { storyId, deletedAt: null }, data: { deleteAfter: daysFromNow(DELETE_MEDIA_AFTER_DAYS) } });
     await writeAudit(tx, { storyId, actorType: "staff", actorId: staff.id, action: "rejected", payload: { status, reason: text } });
     return { ok: true, status };
   });

@@ -1031,3 +1031,34 @@ New questions:
 26. **Google sign-in setup.** Springpod needs to create a Google OAuth client (Workspace, internal) with the redirect `https://<admin host>/api/auth/callback/google`, and set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_SECRET`. Who should own this? (Default: whoever owns the infrastructure decision.)
 27. **Safeguarding lead.** Who is the designated safeguarding lead, and which address should `SAFEGUARDING_LEAD_EMAIL` use? (PRD 21, still open.)
 28. **Content role.** The `content` role exists but adds nothing until the content pack in milestone 7. Should moderators also be able to generate content packs? (Default: no, `content` only, as the PRD says.)
+
+### Milestone 7: Content pack and emails
+
+Milestone 6 approved on 14 October 2026.
+
+What's built: the content pack for the content team (only the assets for the channels the person agreed to, copy buttons, regenerate, earlier versions kept); quote card images at 1080 × 1350 and 1080 × 1920, drawn by the worker with headless Chromium from the same card component; downloads of the approved video or voice note, its captions as SRT and the poster frame; the "Approved" and "Published" emails; "Remove my story" on every email to the young person or parent, with a remove page that withdraws the story; and the nightly retention sweep.
+
+Versions added: `playwright-core` 1.64.0 (headless Chromium for the worker).
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M7.1 | Only staff with the `content` role can make content packs; moderators see them (Q28 default, not yet confirmed) | PRD 11: `content` adds the content pack |
+| M7.2 | Channel to asset: social gets the LinkedIn post, Instagram caption and video hook; the blog gets the title and intro; Springpod and springpod.com get the programme page snippet; tags are always made (Q11). The model is asked for the full pack as `docs/ai-prompts.md` writes it, and anything for a channel the person didn't choose is dropped before it is stored or shown | Acceptance criterion 10. Keeping the prompt as written avoids a second, untested version |
+| M7.3 | Quote card images are made for every approved pack, whatever the channels | The card is the story's own image on every channel (PRD 5.4), not a social post |
+| M7.4 | Without the model, the pack uses only the story's own words (the story, the quote, the headline and first paragraph, the skills as tags) with a notice, and leaves out the video hook | No new marketing copy (`CLAUDE.md`) |
+| M7.5 | The worker opens a signed, two-minute render page at 360 pixels wide and three times the pixel density and screenshots the card: 1080 × 1350 and 1080 × 1920. The card grows rather than clips, so an unusually long quote could make a taller image; a 160-character quote fits (acceptance criterion 11, tested) | Same component as the flow and the admin |
+| M7.6 | The worker needs Chromium: `CHROMIUM_PATH` (or Playwright's own install) in the worker container, and `RENDER_BASE_URL` if it reaches the app on an internal address | Build plan section 2: the worker container has headless Chromium |
+| M7.7 | The "Approved" email goes when the team approves. "Published" is sent from the admin when someone adds the link where the story went live; it includes a lasting link to the quote card image that only works while the story is approved and published | PRD 14 |
+| M7.8 | Every email to the young person or parent ends with its own "Remove my story" link, which never expires. Opening the link shows a confirm button; removing is a separate step so email scanners can't remove a story | PRD 9.3 |
+| M7.9 | Removing withdraws the story (and so unpublishes it), marks its assets withdrawn, stops any edit or parent links, and schedules its media for deletion after 30 days | PRD 9.3 |
+| M7.10 | The retention sweep runs nightly at 02:30 UK time: media past its deletion date, image files of withdrawn assets, drafts untouched for 30 days (Q12, Q24) and links expired over 7 days. The periods are placeholders in `src/lib/retention.ts` until the DPO confirms (PRD 21). The 12-month review of approved media is not automated | Acceptance criterion 12 |
+| M7.11 | Staff downloads: the converted video (MP4) or voice note (M4A), captions built from the transcript's timed lines (two lines at most, cut at the trimmed length) and the poster frame | PRD 12 |
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` 158 tests pass (unit and integration, including the content pack with a fake model and its fallback, only the agreed channels' assets kept, the approved and published emails with their remove links, the card link, removal and the retention sweep); `pnpm test:e2e` 63 Playwright tests pass at 360, 390 and 1440 pixels, including a content pack for a story shared on Springpod only (snippet and tags, nothing for social), both quote card images at their exact sizes with a 160-character quote (acceptance criterion 11), the MP4, SRT and poster downloads, publishing, and removing a story through the email link; `pnpm build` passes; `npx springpod-audit src --json` reports no drift. Not yet run against the real model (no API key here).
+
+New questions:
+
+29. **Who marks stories as published?** The admin lets any staff member add the published link and email the person. Should it be the content team only? (Default: any staff member.)
+30. **Quote card images for every channel.** M7.3 makes the images for every approved pack. If you'd rather only social media stories get them, say so. (Default: every story.)

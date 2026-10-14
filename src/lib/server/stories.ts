@@ -19,7 +19,7 @@ import { currentMedia, purgeStoryMedia } from "./media";
 import { confirmEmail } from "./email/templates";
 import { sendLogged } from "./email/send";
 import { QUEUES, sendJob, type SendJob } from "./jobs";
-import { createToken, useToken } from "./tokens";
+import { createToken, newRemoveToken, useToken } from "./tokens";
 
 /**
  * PLACEHOLDER: version of the terms people agree to on the confirm screen.
@@ -105,7 +105,7 @@ export async function submitStory(deviceHash: string, submission: Submission, se
   const minor = submission.age === "14 to 17";
   const channels = CHANNELS.map((c) => c.value).filter((c) => submission.channels[c]);
 
-  const { storyId, token, firstName } = await db.$transaction(async (tx) => {
+  const { storyId, token, removeToken, firstName } = await db.$transaction(async (tx) => {
     const submitter = await tx.submitter.upsert({ where: { email }, create: { email }, update: {} });
     const draft = await tx.story.findFirst({
       where: { deviceIdHash: deviceHash, status: "draft" },
@@ -146,14 +146,15 @@ export async function submitStory(deviceHash: string, submission: Submission, se
     }
 
     const raw = await createToken(tx, { purpose: "confirm_email", storyId: story.id, submitterId: submitter.id });
-    return { storyId: story.id, token: raw, firstName: story.firstName ?? "" };
+    const removeToken = await newRemoveToken(tx, story.id);
+    return { storyId: story.id, token: raw, removeToken, firstName: story.firstName ?? "" };
   });
 
   // A file left over from a different way of telling the story isn't kept.
   if (media && submission.format !== "voice" && submission.format !== "video") await purgeStoryMedia([storyId]);
 
   // Sent after the transaction commits. Failures are logged; resend is part of milestone 7 (emails).
-  await sendLogged(storyId, confirmEmail({ to: email, firstName, token }));
+  await sendLogged(storyId, confirmEmail({ to: email, firstName, token, removeToken }));
   // The pre-screen decides where the story goes next, and asks the parent or carer (build plan M6.2).
   await send(QUEUES.prescreen, { storyId });
   return { ok: true, storyId };

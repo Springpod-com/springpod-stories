@@ -2,13 +2,14 @@ import "server-only";
 import type { Channel, ParentStatus } from "@/generated/prisma/client";
 import { cardLines, displayName, type TrustLabel } from "@/flow/display";
 import { firstName } from "@/flow/state";
+import { DELETE_MEDIA_AFTER_DAYS, daysFromNow } from "@/lib/retention";
 import { canTransition, nextStatus } from "@/lib/status";
 import { stateFromStory } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
 import { parentConsentEmail } from "./email/templates";
 import { sendLogged } from "./email/send";
-import { createToken, peekToken, useToken } from "./tokens";
+import { createToken, newRemoveToken, peekToken, useToken } from "./tokens";
 import { CHANNELS } from "@/flow/options";
 
 /**
@@ -19,8 +20,6 @@ import { CHANNELS } from "@/flow/options";
 
 export type ParentDecision = "approve" | "approve_anonymous" | "decline";
 
-/** Days after a decline before media is deleted (PRD 9.3: rejected media deleted after 30 days). */
-const DECLINED_MEDIA_DAYS = 30;
 
 export interface ParentView {
   firstName: string;
@@ -104,7 +103,7 @@ export async function decideAsParent(rawToken: string, decision: ParentDecision)
     if (decision === "decline") {
       await tx.media.updateMany({
         where: { storyId: story.id, deletedAt: null },
-        data: { deleteAfter: new Date(Date.now() + DECLINED_MEDIA_DAYS * 24 * 60 * 60 * 1000) },
+        data: { deleteAfter: daysFromNow(DELETE_MEDIA_AFTER_DAYS) },
       });
     }
     await writeAudit(tx, {
@@ -142,6 +141,7 @@ export async function sendParentRequest(storyId: string, actor: { type: "system"
       pullQuote: story.pullQuote ?? "",
       channels: CHANNELS.filter((c) => story.consent!.channels.includes(c.value)).map((c) => c.label),
       token,
+      removeToken: await newRemoveToken(db, storyId),
     }),
   );
 }

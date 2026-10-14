@@ -9,6 +9,10 @@ export interface QuoteCardProps {
   then: string;
   now?: string;
   trust: TrustLabel;
+  /** "portrait" is 4:5 (the feed card); "story" is 9:16 for Stories and Reels. */
+  shape?: "portrait" | "story";
+  /** Square corners, for the exported images (PRD 12). */
+  flat?: boolean;
   className?: string;
 }
 
@@ -28,7 +32,7 @@ const QUOTE_TYPE = {
 } as const;
 
 /** The branded quote card. Always navy, in both themes. One component for the flow, done screen, admin and PNG. */
-export function QuoteCard({ quote, name, then, now, trust, className }: QuoteCardProps) {
+export function QuoteCard({ quote, name, then, now, trust, shape = "portrait", flat = false, className }: QuoteCardProps) {
   const text = quote.trim() || "Your quote will appear here.";
   const size = quoteSize(text);
   const initial = (name.trim().charAt(0) || "?").toUpperCase();
@@ -36,15 +40,18 @@ export function QuoteCard({ quote, name, then, now, trust, className }: QuoteCar
   return (
     <figure
       data-size={size}
-      // One grid cell holds a 4:5 spacer and the content. The row takes the taller of the two,
+      // One grid cell holds a 4:5 (or 9:16) spacer and the content. The row takes the taller of the two,
       // so the card keeps its shape for short quotes and grows for long ones, never clipping.
-      className={cn("relative isolate grid w-full shrink-0 grid-cols-1 rounded-3xl bg-brand-navy text-white", className)}
+      className={cn("relative isolate grid w-full shrink-0 grid-cols-1 bg-brand-navy text-white", !flat && "rounded-3xl", className)}
     >
-      <div aria-hidden className="col-start-1 row-start-1 aspect-4/5" />
+      <div aria-hidden className={cn("col-start-1 row-start-1", shape === "story" ? "aspect-9/16" : "aspect-4/5")} />
       {/* Soft teal glow */}
       <div
         aria-hidden
-        className="absolute inset-0 -z-10 rounded-3xl bg-radial-[at_0%_100%] from-brand-teal/40 via-brand-teal/10 via-40% to-transparent to-70%"
+        className={cn(
+          "absolute inset-0 -z-10 bg-radial-[at_0%_100%] from-brand-teal/40 via-brand-teal/10 via-40% to-transparent to-70%",
+          !flat && "rounded-3xl",
+        )}
       />
       <div className="col-start-1 row-start-1 flex flex-col gap-4 p-6">
         <div className="flex items-start justify-between gap-2">
