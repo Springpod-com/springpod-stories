@@ -1,7 +1,7 @@
 // Pure functions over the question config. No React, no browser APIs.
 
 import { CHAPTERS, type ChapterId, type Question } from "./questions";
-import type { FlowState } from "./state";
+import { MIN_WRITTEN_WORDS, wordCount, type FlowState } from "./state";
 
 export const isVisible = (q: Question, s: FlowState) => !q.when || q.when(s);
 
@@ -47,11 +47,26 @@ export function validationError(q: Question, s: FlowState): string | null {
       return q.validate(s);
     case "stop":
       return "stop";
+    case "story":
+      return storyError(s);
     case "draft":
       return s.draft ? null : "draft";
     default:
       return null;
   }
+}
+
+/** Whether the chosen way of telling the story has enough to write it up. */
+function storyError(s: FlowState): string | null {
+  if (s.format === "write") {
+    const n = wordCount(s.written);
+    return n >= MIN_WRITTEN_WORDS ? null : `Write at least ${MIN_WRITTEN_WORDS} words (you have ${n})`;
+  }
+  // The interview is complete once it has ended: by the interviewer, or by "I'm done, write it up",
+  // which the server allows only after the minimum number of answers (PRD 6.1).
+  if (s.format === "interview") return s.interviewEnded ? null : "interview";
+  // Voice notes and videos are checked on their own screens (milestone 4).
+  return null;
 }
 
 /**

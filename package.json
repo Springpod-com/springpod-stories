@@ -11,15 +11,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . && tsc --noEmit && node scripts/check-em-dash.mjs",
-    "test": "vitest run",
+    "test": "vitest run --project unit --project integration",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "audit:ds": "springpod-audit src --json",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "test:ai": "RUN_AI_TESTS=1 vitest run --project ai"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "@springpod/design-system": "0.2.0",

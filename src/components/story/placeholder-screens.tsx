@@ -11,6 +11,7 @@ import { QuestionHeading, ScreenBody, StickyActions } from "@/components/flow/la
 import { QuoteCard } from "@/components/quote-card/quote-card";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
 import { sampleStoryText } from "@/flow/sample";
+import { ownWords } from "@/flow/source";
 import type { FlowState } from "@/flow/state";
 import { fallbackDraft } from "@/lib/ai/fallbacks";
 
@@ -31,15 +32,14 @@ function BuildNotice({ milestone, children }: { milestone: number; children: str
   );
 }
 
-const STORY_SCREEN = {
-  interview: { title: "Your interview", milestone: 3, note: "The AI interview chat goes here." },
-  write: { title: "Tell us what happened", milestone: 3, note: "The writing box with a live word count goes here." },
+const MEDIA_SCREEN = {
   video: { title: "Film your video", milestone: 4, note: "Film now, upload a file, and the video checks go here." },
   voice: { title: "Record your voice note", milestone: 4, note: "Record now, upload a file, and the voice note checks go here." },
 } as const;
 
-export function StoryPlaceholder({ state, onChange, onNext, onChangeFormat, headingRef }: Props) {
-  const screen = STORY_SCREEN[state.format || "write"];
+/** Voice note and video capture arrive in milestone 4. */
+export function MediaPlaceholder({ state, onChange, onNext, onChangeFormat, headingRef }: Props) {
+  const screen = MEDIA_SCREEN[state.format === "voice" ? "voice" : "video"];
   return (
     <ScreenBody>
       <QuestionHeading ref={headingRef} title={screen.title} />
@@ -84,7 +84,7 @@ export function TranscriptPlaceholder({ state, onNext, headingRef }: Props) {
 }
 
 export function DraftPlaceholder({ state, onChange, onNext, headingRef }: Props) {
-  const draft = state.draft ?? fallbackDraft(state.written || sampleStoryText(state), state.expType, state.role);
+  const draft = state.draft ?? fallbackDraft(ownWords(state) || sampleStoryText(state), state.expType, state.role);
   return (
     <ScreenBody>
       <QuestionHeading ref={headingRef} title="Here's your story. Does it sound like you?" sub="Edit anything you like." />

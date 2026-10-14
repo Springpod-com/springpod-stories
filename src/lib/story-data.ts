@@ -5,8 +5,8 @@ import { z } from "zod";
 import { validationError, visibleQuestions } from "@/flow/engine";
 import { AGES, type AgeOption } from "@/flow/options";
 import { QUESTIONS } from "@/flow/questions";
-import { initialState, type FlowState } from "@/flow/state";
-import type { AgeBand, Prisma, Story } from "@/generated/prisma/client";
+import { initialState, type FlowState, type Turn } from "@/flow/state";
+import type { AgeBand, InterviewTurn, Prisma, Story } from "@/generated/prisma/client";
 
 const text = (max: number) => z.string().max(max);
 
@@ -113,8 +113,11 @@ export function storyFields(a: DraftAnswers): Prisma.StoryCreateInput {
   };
 }
 
+export const toTurns = (rows: Pick<InterviewTurn, "role" | "content" | "quickReply">[]): Turn[] =>
+  rows.map((r) => ({ role: r.role, content: r.content, ...(r.quickReply ? { quickReply: true } : {}) }));
+
 /** Rebuilds the flow state from a saved draft so the person can carry on. */
-export function stateFromStory(story: Story): FlowState {
+export function stateFromStory(story: Story, turns: Turn[] = []): FlowState {
   const hasDraft = story.headline !== null || story.story !== null || story.pullQuote !== null;
   return {
     ...initialState,
@@ -131,6 +134,8 @@ export function stateFromStory(story: Story): FlowState {
     mode: story.mode ?? "",
     format: story.format ?? "",
     written: story.writtenText ?? "",
+    turns,
+    interviewEnded: story.interviewEndedBy != null,
     draft: hasDraft
       ? {
           headline: story.headline ?? "",
@@ -147,6 +152,12 @@ export function stateFromStory(story: Story): FlowState {
   };
 }
 
+/** Messages for checks that have no on-screen wording of their own (the screens prevent them). */
+const SERVER_MESSAGES: Record<string, string> = {
+  draft: "Your story hasn't been written up yet",
+  interview: "The interview needs a few more answers",
+};
+
 export interface SubmissionError {
   questionId: string;
   message: string;
@@ -156,13 +167,16 @@ export interface SubmissionError {
  * Server-side check of a whole submission against the question config: every question
  * the person should have seen must be answered and valid. Returns the first problem.
  */
-export function submissionError(s: Submission): SubmissionError | null {
-  const state: FlowState = { ...initialState, ...s, transcript: "" };
+export function submissionError(
+  s: Submission,
+  interview: { turns: Turn[]; ended: boolean } = { turns: [], ended: false },
+): SubmissionError | null {
+  const state: FlowState = { ...initialState, ...s, transcript: "", turns: interview.turns, interviewEnded: interview.ended };
   if (state.age === "Under 14") return { questionId: "age", message: "Stories are open to people aged 14 and over" };
   for (const q of visibleQuestions(QUESTIONS, state)) {
-    if (["intro", "stop", "done", "guide", "story", "transcript"].includes(q.kind)) continue;
+    if (["intro", "stop", "done", "guide", "transcript"].includes(q.kind)) continue;
     const message = validationError(q, state);
-    if (message) return { questionId: q.id, message: q.kind === "draft" ? "Your story hasn't been written up yet" : message };
+    if (message) return { questionId: q.id, message: SERVER_MESSAGES[message] ?? message };
   }
   return null;
 }

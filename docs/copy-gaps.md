@@ -8,7 +8,7 @@ Screens, states and messages the prototype doesn't cover. Per `CLAUDE.md`, the b
 | G2 | Resume a saved draft | Message when someone returns on the same device, and the label for the "Start again" link (the build uses "Start again" for now) | 2 |
 | G3 | Transcript screen while processing | Upload progress and "transcribing" waiting state; failure state if transcription fails | 4 |
 | G4 | Upload failure | Connection lost and resuming; upload failed after retries | 4 |
-| G5 | Interview errors | Message if a reply fails and we switch to fixed questions (or no message at all) | 3 |
+| G5 | Interview errors | When the interviewer can't be reached at all. Placeholder: "We couldn't reach the interviewer. Try sending again." (When the AI fails, the fixed questions take over silently: no message) | 3 |
 | G6 | Draft generation failure | Message if the draft can't be written and the fallback is used | 5 |
 | G7 | Parent or carer decision page (`/parent/[token]`) | Intro, story preview framing, three buttons (Approve, Approve without name, Decline), confirmation for each, expired link | 5 |
 | G8 | Remove my story page (`/remove/[token]`) | Confirm step, removed state, already removed | 7 |
@@ -20,5 +20,5 @@ Screens, states and messages the prototype doesn't cover. Per `CLAUDE.md`, the b
 | G14 | Emails (PRD 14) | All six: confirm email, parent consent request, approved, published, changes requested, safeguarding flag. Subject lines, body, button labels, footer with "Remove my story". The confirm email sends now with a marked placeholder subject and body | 2, 7 |
 | G15 | Error pages | 404, 500, rate limited | 8 |
 | G16 | Terms text and version | The full text behind "Springpod can use it where I've chosen" and the version stored with consent | 5 |
-| G17 | Rate limit message in the interview and draft | When someone hits the limit | 3 |
+| G17 | Rate limit message in the interview and draft | When someone hits the limit. Interview placeholder: "Too many messages too quickly. Wait a moment, then try again." | 3, 5 |
 | G18 | Submit errors | When sending fails ("We couldn't send your story. Check your connection and try again.") and when there have been too many tries ("Too many tries. Wait a little while, then try again."). Both are placeholders | 2 |

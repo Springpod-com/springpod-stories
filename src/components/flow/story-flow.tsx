@@ -9,7 +9,9 @@ import { DoneScreen } from "@/components/done/done-screen";
 import { GuideScreen } from "@/components/media/guide-screen";
 import { QuoteCard } from "@/components/quote-card/quote-card";
 import { StartScreen } from "@/components/start/start-screen";
-import { DraftPlaceholder, StoryPlaceholder, TranscriptPlaceholder } from "@/components/story/placeholder-screens";
+import { InterviewScreen } from "@/components/story/interview-screen";
+import { DraftPlaceholder, MediaPlaceholder, TranscriptPlaceholder } from "@/components/story/placeholder-screens";
+import { WriteScreen } from "@/components/story/write-screen";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
 import {
   chapterName,
@@ -211,7 +213,20 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
       screen = <GuideScreen format={state.format === "video" ? "video" : "voice"} onNext={() => goNext()} headingRef={headingRef} />;
       break;
     case "story":
-      screen = <StoryPlaceholder {...common} onChangeFormat={() => go("mode")} />;
+      screen =
+        state.format === "interview" ? (
+          <InterviewScreen
+            state={state}
+            setState={setState}
+            onNext={goNext}
+            onChangeFormat={() => go("mode")}
+            headingRef={headingRef}
+          />
+        ) : state.format === "write" ? (
+          <WriteScreen {...common} onChangeFormat={() => go("mode")} />
+        ) : (
+          <MediaPlaceholder {...common} onChangeFormat={() => go("mode")} />
+        );
       break;
     case "transcript":
       screen = <TranscriptPlaceholder {...common} onChangeFormat={() => go("mode")} />;

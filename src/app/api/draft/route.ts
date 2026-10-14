@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ensureDeviceHash, currentDeviceHash } from "@/lib/server/device";
 import { jsonError, sameOrigin } from "@/lib/server/http";
 import { clientIp, rateLimit } from "@/lib/server/rate-limit";
+import { loadTurns } from "@/lib/server/interview";
 import { deleteDraft, getDraft, saveDraft } from "@/lib/server/stories";
 import { draftAnswersSchema, stateFromStory } from "@/lib/story-data";
 
@@ -10,7 +11,7 @@ export async function GET() {
   const device = await currentDeviceHash();
   const story = device ? await getDraft(device) : null;
   if (!story) return new NextResponse(null, { status: 204 });
-  return NextResponse.json({ state: stateFromStory(story), savedAt: story.updatedAt });
+  return NextResponse.json({ state: stateFromStory(story, await loadTurns(story.id)), savedAt: story.updatedAt });
 }
 
 /** Autosave. Creates the draft once a valid age is given. */

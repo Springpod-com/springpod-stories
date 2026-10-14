@@ -2,7 +2,16 @@ import "server-only";
 import type { Story } from "@/generated/prisma/client";
 import { CHANNELS } from "@/flow/options";
 import { nextStatus } from "@/lib/status";
-import { ageBand, storyFields, submissionError, type DraftAnswers, type Submission, type SubmissionError } from "@/lib/story-data";
+import { PROMPT_VERSION } from "@/lib/ai/prompts";
+import {
+  ageBand,
+  storyFields,
+  submissionError,
+  toTurns,
+  type DraftAnswers,
+  type Submission,
+  type SubmissionError,
+} from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
 import { emailProvider } from "./email";
@@ -70,7 +79,11 @@ export type SubmitResult = { ok: true; storyId: string } | { ok: false; error: S
  * confirm link. Consent and contact details are only ever stored here, never by autosave.
  */
 export async function submitStory(deviceHash: string, submission: Submission): Promise<SubmitResult> {
-  const error = submissionError(submission);
+  const existing = await findDraft(deviceHash);
+  const turns = existing
+    ? toTurns(await db.interviewTurn.findMany({ where: { storyId: existing.id }, orderBy: { createdAt: "asc" } }))
+    : [];
+  const error = submissionError(submission, { turns, ended: existing?.interviewEndedBy != null });
   if (error) return { ok: false, error };
 
   const email = submission.email.trim().toLowerCase();
@@ -83,7 +96,7 @@ export async function submitStory(deviceHash: string, submission: Submission): P
       where: { deviceIdHash: deviceHash, status: "draft" },
       orderBy: { updatedAt: "desc" },
     });
-    const fields = { ...storyFields(submission), submitter: { connect: { id: submitter.id } } };
+    const fields = { ...storyFields(submission), promptVersion: PROMPT_VERSION, submitter: { connect: { id: submitter.id } } };
     const story = draft
       ? await tx.story.update({ where: { id: draft.id }, data: fields })
       : await tx.story.create({ data: { ...fields, deviceIdHash: deviceHash } });
@@ -109,10 +122,18 @@ export async function submitStory(deviceHash: string, submission: Submission): P
       payload: { channels, marketingOptIn: submission.marketing, termsVersion: TERMS_VERSION, minor },
     });
 
-    // PLACEHOLDER until milestone 6: the AI pre-screen job runs here. For now the story passes straight on.
-    status = nextStatus(status, "prescreen_clear");
-    await tx.story.update({ where: { id: story.id }, data: { status } });
-    await writeAudit(tx, { storyId: story.id, actorType: "system", action: "prescreen_skipped", payload: { status } });
+    // A safeguarding concern raised during the interview takes the story out of the normal queue (PRD 9.4).
+    const concern = await tx.flag.count({ where: { storyId: story.id, type: "safeguarding", resolvedAt: null } });
+    if (concern) {
+      status = nextStatus(status, "safeguarding_flag");
+      await tx.story.update({ where: { id: story.id }, data: { status } });
+      await writeAudit(tx, { storyId: story.id, actorType: "system", action: "safeguarding_review", payload: { status } });
+    } else {
+      // PLACEHOLDER until milestone 6: the AI pre-screen job runs here. For now the story passes straight on.
+      status = nextStatus(status, "prescreen_clear");
+      await tx.story.update({ where: { id: story.id }, data: { status } });
+      await writeAudit(tx, { storyId: story.id, actorType: "system", action: "prescreen_skipped", payload: { status } });
+    }
 
     const raw = await createToken(tx, { purpose: "confirm_email", storyId: story.id, submitterId: submitter.id });
     return { storyId: story.id, token: raw, firstName: story.firstName ?? "" };
@@ -140,11 +161,11 @@ export async function confirmStoryEmail(rawToken: string): Promise<ConfirmResult
     if (!storyId || !submitterId) return { ok: false, reason: "not_found" };
 
     const story = await tx.story.findUniqueOrThrow({ where: { id: storyId }, include: { consent: true } });
+    await tx.submitter.updateMany({
+      where: { id: submitterId, emailConfirmedAt: null },
+      data: { emailConfirmedAt: new Date() },
+    });
     if (story.status === "awaiting_email") {
-      await tx.submitter.updateMany({
-        where: { id: submitterId, emailConfirmedAt: null },
-        data: { emailConfirmedAt: new Date() },
-      });
       const status = nextStatus(story.status, "email_confirmed", {
         parentPending: story.consent?.parentStatus === "pending",
       });

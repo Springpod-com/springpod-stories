@@ -1,5 +1,13 @@
 import type { AgeOption, Channel, DisplayChoice, NowStatus, StoryFormat, StoryMode, Who } from "./options";
 
+/** One message in the AI interview. */
+export interface Turn {
+  role: "assistant" | "user";
+  content: string;
+  /** "Ask it differently" or "Skip this one": not counted as an answer. */
+  quickReply?: boolean;
+}
+
 export interface Draft {
   headline: string;
   story: string;
@@ -26,6 +34,9 @@ export interface FlowState {
   format: StoryFormat | "";
   written: string;
   transcript: string;
+  /** The AI interview so far. Stored on the server turn by turn, not by autosave. */
+  turns: Turn[];
+  interviewEnded: boolean;
   draft: Draft | null;
   display: DisplayChoice | "";
   showCo: boolean | null;
@@ -51,6 +62,8 @@ export const initialState: FlowState = {
   format: "",
   written: "",
   transcript: "",
+  turns: [],
+  interviewEnded: false,
   draft: null,
   display: "",
   showCo: null,
@@ -81,3 +94,10 @@ export const usesMedia = (s: FlowState) => s.format === "voice" || s.format === 
 export const firstName = (s: FlowState) => s.firstName.trim().split(/\s+/)[0] ?? "";
 export const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 export const wordCount = (t: string) => (t.trim().match(/\S+/g) ?? []).length;
+
+/** Interview answers that count towards the minimum: quick replies don't. */
+export const interviewAnswers = (s: FlowState) => s.turns.filter((t) => t.role === "user" && !t.quickReply).length;
+
+/** Minimum written words (PRD 6.2) and interview answers (PRD 6.1) before the story can be written up. */
+export const MIN_WRITTEN_WORDS = 40;
+export const MIN_INTERVIEW_ANSWERS = 3;

@@ -4,7 +4,7 @@ Milestone 0 output. Running document: decisions, conflicts and open questions ar
 
 | | |
 |---|---|
-| Status | Milestones 0 and 1 approved. Milestone 2 (data and accounts) built, for review. Infrastructure choices (hosting, transcription, storage) are with the CTO. Log in section 19 |
+| Status | Milestones 0 to 2 approved. Milestone 3 (write and interview) built, for review. Infrastructure choices (hosting, transcription, storage) are with the CTO. Log in section 19 |
 | Sources read | `CLAUDE.md`, `docs/PRD.md`, `docs/ai-prompts.md`, `design/README.md`, the prototype (all screens, flow engine, checks, interview, draft, admin) and every PNG in `design/screens/` |
 | Design system | `@springpod/design-system@0.2.0` (public on npm). Ships `springpod-audit` and `springpod-init` as package bins, so `npx springpod-audit src --json` works once installed |
 
@@ -901,3 +901,32 @@ New questions:
 
 20. **Resume on another device.** Should people be able to pick up a draft on a different device, using their email? It needs a "send me a link" screen the prototype doesn't have. (Default: same device only for now.)
 21. **Confirm link lifetime.** 7 days (M2.4)? (Default: 7 days.)
+
+### Milestone 3: Write and interview
+
+What's built: the "Write it" screen (live word count, at least 40 words); the AI interview with streamed replies, quick replies, the "I'm done, write it up" option after three answers, the story strength meter, fixed fallback questions, a hard stop after nine answers, and the safeguarding ending; every turn stored so the interview resumes; the prompts module copied from `docs/ai-prompts.md` with a version number; and the red-team script for acceptance criterion 9.
+
+Versions added: `@anthropic-ai/sdk` 0.133.
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M3.1 | Interview turns use `claude-haiku-5-5` at effort `low`; drafting and the rest will use `claude-sonnet-5-5`. Both set by `AI_MODEL_FAST` and `AI_MODEL_BALANCED` | `docs/ai-prompts.md` asks for a fast Haiku-class model for interview turns and a balanced Sonnet-class model for the rest. Low effort keeps replies quick. No temperature or prefill: the current models reject both |
+| M3.2 | Without `ANTHROPIC_API_KEY` the interview uses the fixed questions | The PRD's fallback path. It also means local development, CI and the browser tests need no key |
+| M3.3 | The interviewer prompt is sent as the system prompt; the kickoff ("Start the interview now...") is the first user message | As `docs/ai-prompts.md` describes. The prototype put both in one user message |
+| M3.4 | Replies stream as newline-delimited JSON events. The `[[END]]` and `[[SAFEGUARDING]]` markers are stripped on the server, including when a marker arrives split across chunks | Markers never reach the browser |
+| M3.5 | If the model fails, times out (20 seconds) or declines part way through a reply, the half-shown reply is replaced with the next fixed question | Haiku-class models have no server-side fallback for declined requests |
+| M3.6 | Quick replies are stored as user turns marked `quickReply`, and only the exact quick reply texts count as quick replies. They don't count towards the three-answer minimum | PRD 6.1 minimum is about real answers |
+| M3.7 | The interview step is complete only once the interview has ended: by the interviewer, the hard stop, or "I'm done, write it up" (which the server allows after three answers) | Found in testing: counting three answers as complete made a reload skip past an unfinished interview |
+| M3.8 | A safeguarding ending raises a `safeguarding` flag on the draft. At submit, a story with an open safeguarding flag goes to `safeguarding_review` instead of the normal queue | PRD 6.1 and 9.4. Notifying the safeguarding lead arrives with the admin in milestone 6 |
+| M3.9 | The interviewer's picture is the chat glyph on navy | No rocket (M1.19) |
+| M3.10 | The red-team script runs only with `pnpm test:ai` and an API key. 10 personas by 3 scripts: volunteering personal details, inviting contact questions, and a harm disclosure | Acceptance criterion 9. It calls the real model, so it stays out of every-push CI. **Not yet run: this environment has no API key** |
+| M3.11 | The Send button stays enabled; pressing it with an empty box does nothing | PRD 5.1: validation on press, not by greying out buttons |
+| M3.12 | Interview rate limits: 30 turns a minute per device, 300 per connection; answers up to 2,000 characters | Cost and abuse protection on an anonymous AI endpoint |
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` 68 tests pass (unit and Postgres integration, including the interview service with a fake model); `pnpm test:e2e` 25 Playwright tests pass, including writing, the interview through to the draft, quick replies and resuming the interview; `pnpm build` passes; `npx springpod-audit src --json` reports no drift; `pnpm test:ai` has 30 red-team conversations ready to run.
+
+New questions:
+
+22. **API key for the red team run.** To sign off acceptance criterion 9, someone with an Anthropic key (or Bedrock, if chosen) needs to run `pnpm test:ai`. Can you add a key to the environment, or run it yourselves? (Default: you run it before launch.)

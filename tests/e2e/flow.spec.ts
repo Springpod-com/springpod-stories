@@ -19,6 +19,29 @@ async function expectCardNotClipped(card: Locator) {
   expect(spill).toBeLessThanOrEqual(0);
 }
 
+const STORY =
+  "On my first day I was honestly really nervous, but the team gave me a real task straight away. " +
+  "By Wednesday I was presenting part of a report in their morning meeting, and someone actually used what I made. " +
+  "The hardest thing was asking questions. My advice is to say yes to things.";
+
+/** Answers the interview using the fixed questions (no API key in tests), then asks for the write-up. */
+async function interview(page: Page) {
+  await expect(heading(page)).toHaveText("Your interview");
+  for (const answer of ["I helped run the reception desk.", "A patient thanked me by name.", "Talking to strangers was hard."]) {
+    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+    await page.getByRole("textbox", { name: "Your answer" }).fill(answer);
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByRole("log").getByText(answer)).toBeVisible();
+  }
+  await page.getByRole("button", { name: "I'm done, write it up" }).click();
+}
+
+async function writeStory(page: Page) {
+  await expect(heading(page)).toHaveText("Tell us what happened");
+  await page.getByRole("textbox").fill(STORY);
+  await page.getByRole("button", { name: "Write up my story" }).click();
+}
+
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 
 async function pick(page: Page, name: string | RegExp) {
@@ -76,7 +99,11 @@ test.describe("public flow", () => {
     await pick(page, /^Write it/);
 
     await expect(heading(page)).toHaveText("Tell us what happened");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("textbox").fill("Too short to use.");
+    await expect(page.getByText("4 words · 150 to 400 works best")).toBeVisible();
+    await page.getByRole("button", { name: "Write up my story" }).click();
+    await expect(page.locator("[data-slot=field-error]")).toHaveText("Write at least 40 words (you have 4)");
+    await writeStory(page);
     await expect(heading(page)).toHaveText("Here's your story. Does it sound like you?");
     await page.getByRole("button", { name: "Looks good" }).click();
 
@@ -144,6 +171,43 @@ test.describe("public flow", () => {
     expect((await page.request.get("/api/draft")).status()).toBe(204);
   });
 
+  test("the interview asks one question at a time, counts real answers and resumes after a reload", async ({ page }) => {
+    await startAs(page, "Student", "18 to 24");
+    await pick(page, "Volunteering");
+    await answer(page, "Children's ward");
+    await answer(page, "", "Skip");
+    await pick(page, "At school");
+    await pick(page, /^Interview me/);
+    await expect(heading(page)).toHaveText("Your interview");
+
+    // No API key in tests, so the fixed questions are used (docs/ai-prompts.md section 1).
+    const log = page.getByRole("log");
+    await expect(log.getByText("Hi Priya! What did a normal day look like during your volunteering?")).toBeVisible();
+    await expect(page.getByText("Question 1 of about 6")).toBeVisible();
+    await expect(page.getByText("Getting started")).toBeVisible();
+
+    await page.getByRole("button", { name: "Skip this one" }).click();
+    await expect(log.getByText("I'd rather skip that one.")).toBeVisible();
+    await expect(log.getByText("Was there one moment that really stood out?")).toBeVisible();
+
+    for (const reply of ["I set up games for the children.", "A boy laughed for the first time in days.", "Seeing children in pain was hard."]) {
+      await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+      await page.getByRole("textbox", { name: "Your answer" }).fill(reply);
+      await page.keyboard.press("Enter");
+      await expect(log.getByText(reply)).toBeVisible();
+      if (reply.startsWith("A boy")) await expect(page.getByRole("button", { name: "I'm done, write it up" })).toHaveCount(0);
+    }
+    await expect(page.getByRole("button", { name: "I'm done, write it up" })).toBeVisible();
+
+    // The chat comes back after a reload.
+    await page.reload();
+    await page.getByRole("button", { name: "Start my story" }).click();
+    await expect(heading(page)).toHaveText("Your interview");
+    await expect(page.getByRole("log").getByText("A boy laughed for the first time in days.")).toBeVisible();
+    await page.getByRole("button", { name: "I'm done, write it up" }).click();
+    await expect(heading(page)).toHaveText("Here's your story. Does it sound like you?");
+  });
+
   test("nothing is saved for under 14s (PRD 9.1)", async ({ page }) => {
     await startAs(page, "Student", "18 to 24");
     await expect(heading(page)).toHaveText(/What kind of experience was it\?/);
@@ -164,8 +228,7 @@ test.describe("public flow", () => {
     await answer(page, "", "Skip");
     await pick(page, "Technology");
     await pick(page, /^Interview me/);
-    await expect(heading(page)).toHaveText("Your interview");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await interview(page);
     await page.getByRole("button", { name: "Looks good" }).click();
     await expect(page.getByText("Verified by Springpod")).toBeVisible();
     await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
@@ -234,8 +297,7 @@ test.describe("public flow", () => {
     await expect(heading(page)).toHaveText("Which industry is that in?");
     await pick(page, "Construction and engineering");
     await pick(page, /^Interview me/);
-    await expect(heading(page)).toHaveText("Your interview");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await interview(page);
     await page.getByRole("button", { name: "Looks good" }).click();
     await pick(page, "First name (Tom)");
     await page.getByRole("button", { name: "Continue" }).click();

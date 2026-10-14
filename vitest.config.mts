@@ -36,6 +36,15 @@ export default defineConfig({
           fileParallelism: false,
         },
       },
+      {
+        extends: true,
+        test: {
+          // Calls the real model; only runs with `pnpm test:ai` and an API key (see tests/ai).
+          name: "ai",
+          environment: "node",
+          include: ["tests/ai/**/*.test.ts"],
+        },
+      },
     ],
   },
 });

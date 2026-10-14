@@ -16,7 +16,7 @@ const priya: FlowState = {
   nowInd: "Arts and media",
   mode: "self",
   format: "write",
-  written: "Some words",
+  written: "I helped the team put together a short report on their customers. By Wednesday I was presenting part of it in the morning meeting, which made me really nervous, but they listened and asked questions. Someone actually used what I made. The hardest thing was asking for help. My advice: say yes to things and ask loads of questions.",
   draft: { headline: "H", story: "S", pullQuote: "Q", quoteOptions: ["Q"], skills: ["A"], advice: "Ad", sector: "Se" },
   display: "initial",
   showCo: true,
