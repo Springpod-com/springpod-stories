@@ -14,6 +14,9 @@ import { approve } from "./review";
 import { confirmStoryEmail, saveDraft, submitStory } from "./stories";
 import { objectSize, putObject } from "./storage";
 
+// The card link is signed; CI has no AUTH_SECRET.
+vi.stubEnv("RENDER_SECRET", "test-render-secret");
+
 const DEVICE = "device-pack";
 const content: Staff = { id: "staff-c", email: "c@springpod.com", name: "Cara", role: "content" };
 const moderator: Staff = { id: "staff-m", email: "m@springpod.com", name: "Mo", role: "moderator" };
