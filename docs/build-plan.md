@@ -1,0 +1,825 @@
+# Build plan: Work Experience Stories
+
+Milestone 0 output. Running document: decisions, conflicts and open questions are added here as the build goes on.
+
+| | |
+|---|---|
+| Status | Milestone 0 (plan) for review. No app code yet |
+| Sources read | `CLAUDE.md`, `docs/PRD.md`, `docs/ai-prompts.md`, `design/README.md`, the prototype (all screens, flow engine, checks, interview, draft, admin) and every PNG in `design/screens/` |
+| Design system | `@springpod/design-system@0.2.0` (public on npm). Ships `springpod-audit` and `springpod-init` as package bins, so `npx springpod-audit src --json` works once installed |
+
+Contents:
+
+1. Conflicts between sources (and what the build does)
+2. Stack and key technical choices
+3. File structure
+4. Flow engine and question config
+5. Screens and design system components
+6. Local compositions (no package component exists)
+7. Data model and Prisma schema
+8. Statuses and gates
+9. API routes
+10. Media pipeline and background jobs
+11. AI integration
+12. Auth, tokens and privacy
+13. Emails
+14. Tracking
+15. Testing and checks
+16. Milestone breakdown
+17. Placeholders for PRD section 21 open decisions
+18. New questions for review
+
+---
+
+## 1. Conflicts between sources
+
+The rule from `CLAUDE.md`: the PRD wins, then the prototype. Where the prototype and `docs/ai-prompts.md` differ, I treat `ai-prompts.md` as the build source for prompts (the PRD points to it).
+
+| # | Where | Prototype | Build follows | Why |
+|---|---|---|---|---|
+| C1 | Trust label wording (admin) | "Verified Springpod experience" | "Verified by Springpod" | PRD 18: trust labels exactly "Verified by Springpod" and "Community story" |
+| C2 | Trust label logic | Verified if the person picks "Springpod student" | Stored label is "Verified by Springpod" only after a confirmed email matches a completed programme (or a moderator verifies by hand) | PRD 10.2, 10.3. The preview in the public flow is a separate question, see Q1 |
+| C3 | Product name inside prompts | "Springpod Stories" | "Springpod Work Experience Stories" | `ai-prompts.md` sections 1 and 2 |
+| C4 | Interviewer safeguarding marker | Ends the interview with no marker | Ends with `[[SAFEGUARDING]]`, server strips it and sets `safeguarding_review` | `ai-prompts.md` section 1, PRD 6.1 |
+| C5 | Video file types | Accepts `.avi` | mp4, mov, m4v, webm, 3gp (plus any `video/*` MIME) | PRD 7.1 |
+| C6 | Voice note volume check order | Checks "RMS under -40 dBFS warns" before "peak under 0.05 fails", so a near-silent file gets a warning, not a fail | Peak under 0.05 fails first, then RMS warns | PRD 7.1 lists the fail. Unit test covers it |
+| C7 | Admin header label | "Springpod Stories admin" (small label above "Story queue") | "Work Experience Stories admin" | PRD 18: product name is "Work Experience Stories". The header already says this in the prototype |
+| C8 | Admin flags | Regex heuristics in the browser | AI pre-screen (`ai-prompts.md` section 4) on the server, plus the same cheap regex pass for phone numbers, emails and handles as a deterministic backstop | PRD 9.4. The regex pass adds safety at no cost; flags carry `source: system` |
+| C9 | Desktop "Your story so far" rail | Code exists but is hidden with `display:none !important` | Not built | Not in the PRD or screenshots |
+| C10 | Rockets and award functions | Present but stubbed out | Not built | `CLAUDE.md`: no rewards |
+| C11 | `FORMATS` constant ("Write it myself") | Unused; the question config says "Write it" | Use the question config copy | The config is what renders |
+| C12 | Unsplash portraits, invented names | Hard-coded examples | Keep, with the "Example stories" tag, until replaced (open decision) | PRD 5.2, 21 |
+
+Nothing else conflicts. Copy is taken from the prototype question config as written.
+
+---
+
+## 2. Stack and key technical choices
+
+PRD section 4 is the starting point. Hosting fit is an open decision (PRD 21), so this plan keeps the app portable: a standard Next.js server plus a separate worker process, both in containers.
+
+| Area | Choice | Notes |
+|---|---|---|
+| App | Next.js (App Router), TypeScript strict, React 19 | Versions pinned to current stable at milestone 1 |
+| UI | `@springpod/design-system` components, tokens, icons and fonts; Tailwind v4; `next-themes` for light and dark (already a package dependency) | `springpod-init` run once to wire the stylesheet. No `@font-face` or font links: fonts ship with the package |
+| Forms | Package `ui/field` and `ui/form` (react-hook-form, a package dependency) where a screen has a real form; plain controlled state in the flow engine | |
+| Database | Postgres with Prisma | UK or EU region |
+| Jobs | `pg-boss` (job queue on the same Postgres) | Fewer moving parts than Redis plus BullMQ. Retries, backoff, cron and priorities built in. PRD allows either |
+| Worker | Node process in its own container with `ffmpeg`, `ffprobe` and headless Chromium | Media processing, transcription calls, AI pre-screen, quote card PNGs, emails, retention sweep |
+| Storage | S3-compatible private bucket, UK or EU region, server-side encryption, CORS for direct browser uploads | Short-lived presigned URLs for every read and write |
+| Uploads | S3 multipart upload driven by Uppy core and `@uppy/aws-s3` (headless, no Uppy UI) | Resumes after dropped connections and page reloads. Parts signed by our API. UI is ours, from package components |
+| AI | Anthropic Claude API via `@anthropic-ai/sdk`, server only | Model IDs come from env vars (fast model for interview turns, balanced model for draft, content pack and pre-screen), so they can change without code edits |
+| Schema validation | `zod` for AI JSON output, API input and env vars | |
+| Auth (staff) | Auth.js with Google Workspace, restricted to the Springpod domain, plus a `StaffUser` table for roles | JWT sessions, so no Auth.js tables |
+| Auth (submitters, parents) | Our own single-use signed tokens (hashed in the database) and an HTTP-only session cookie | Simpler than running a second Auth.js realm. Covers confirm, edit after changes requested, parent decision and remove |
+| Quote card PNG | Worker loads a private render route (`/render/quote-card/[storyId]`) in headless Chromium and screenshots it at 1080x1350 and 1080x1920 | Meets "rendered server-side from the same component". Satori was considered but cannot run the package's Tailwind components as-is |
+| Email | Adapter interface. `console` adapter in development; provider adapter added once chosen (open decision) | Templates in React Email, plain text alternative |
+| Transcription | Adapter interface with a `fake` adapter for development and tests (returns sample text with timestamps) | Provider is an open decision |
+| Tests | Vitest (logic, flow config, checks, prompts, gates), Playwright (flows, admin gating, mobile viewport) | |
+| Package manager | pnpm | |
+
+---
+
+## 3. File structure
+
+```
+.
+├── CLAUDE.md, README.md, KICKOFF_PROMPT.md
+├── docs/
+│   ├── PRD.md, ai-prompts.md
+│   ├── build-plan.md          (this file)
+│   └── copy-gaps.md           (copy the prototype does not cover)
+├── design/                    (prototype, screens, assets: reference only)
+├── prisma/
+│   ├── schema.prisma
+│   ├── migrations/
+│   └── seed.ts                (the three example stories from the prototype admin, staff users for local dev)
+├── public/
+│   └── examples/              (six portraits as AVIF and WebP, under 30 KB each)
+├── scripts/
+│   └── check-em-dash.mjs      (fails on U+2014 in src/ and the prompts module)
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx                     (theme provider, package stylesheet)
+│   │   ├── (public)/
+│   │   │   ├── layout.tsx                 (header: logo + "Work Experience Stories")
+│   │   │   ├── page.tsx                   (the story flow: start screen through done)
+│   │   │   ├── confirm/[token]/page.tsx   (email confirmation landing)
+│   │   │   ├── parent/[token]/page.tsx    (parent or carer decision)
+│   │   │   ├── remove/[token]/page.tsx    (remove my story)
+│   │   │   └── edit/[token]/page.tsx      (changes requested: edit and resubmit)
+│   │   ├── admin/
+│   │   │   ├── layout.tsx                 (staff session guard, admin header)
+│   │   │   ├── page.tsx                   (queue and detail)
+│   │   │   ├── stories/[id]/page.tsx      (detail on its own URL, deep links from emails)
+│   │   │   └── sign-in/page.tsx
+│   │   ├── render/quote-card/[id]/page.tsx (worker-only render route, signed request)
+│   │   └── api/
+│   │       ├── draft/route.ts             (create and autosave the draft story)
+│   │       ├── interview/turn/route.ts    (streamed interviewer reply)
+│   │       ├── story/generate/route.ts    (draft, regenerate)
+│   │       ├── story/submit/route.ts
+│   │       ├── uploads/[...]/route.ts     (create, sign part, complete, abort)
+│   │       ├── media/[id]/status/route.ts (server checks and transcript progress)
+│   │       ├── tokens/[token]/route.ts    (confirm, parent decision, remove)
+│   │       ├── auth/[...nextauth]/route.ts
+│   │       └── admin/...                  (status changes, checklist ticks, flags, content pack, downloads)
+│   ├── flow/
+│   │   ├── questions.ts                   (the typed question config: ids, kinds, chapters, copy, when, validation)
+│   │   ├── options.ts                     (WHO, AGES, EXP, NOW, INDUSTRIES, CHANNELS)
+│   │   ├── engine.ts                      (visible, next, prev, chapter progress: pure functions)
+│   │   ├── state.ts                       (reducer, autosave, resume)
+│   │   └── engine.test.ts
+│   ├── components/
+│   │   ├── flow/                          (FlowShell, ChapterProgress, QuestionScreen, ChoiceScreen, TextScreen, MultiScreen, StickyActions, StopScreen)
+│   │   ├── start/                         (StartBox, ExampleReel, ExampleCard)
+│   │   ├── story/                         (InterviewChat, ChatBubble, TypingIndicator, StoryStrength, WriteBox, DraftEditor, QuotePicker)
+│   │   ├── media/                         (GuideScreen, PromptCard, CaptureTiles, ChecksScreen, CheckList, TranscriptScreen, UploadStatus)
+│   │   ├── quote-card/                    (QuoteCard: one component for flow, done, admin and PNG)
+│   │   ├── done/                          (DoneScreen, Celebration)
+│   │   └── admin/                         (QueueList, QueueFilters, StoryDetail, FactsList, FlagNotices, MediaReview, TeamChecklist, DecisionActions, ContentPack)
+│   ├── lib/
+│   │   ├── ai/
+│   │   │   ├── prompts.ts                 (every prompt, with PROMPT_VERSION)
+│   │   │   ├── client.ts                  (Anthropic SDK, model config, timeouts)
+│   │   │   ├── interview.ts, draft.ts, content-pack.ts, prescreen.ts
+│   │   │   ├── schemas.ts                 (zod schemas for JSON outputs)
+│   │   │   └── fallbacks.ts               (fallback questions, pickQuotes, fallbackDraft)
+│   │   ├── media/
+│   │   │   ├── checks.ts                  (pure threshold functions, PRD 7.1)
+│   │   │   ├── checks.test.ts             (one test per row, plus undecodable files)
+│   │   │   ├── browser-analyse.ts         (metadata, frame brightness, audio analysis in the browser)
+│   │   │   └── upload.ts                  (Uppy multipart wiring)
+│   │   ├── gates.ts                       (canApprove and friends, shared by UI and API)
+│   │   ├── status.ts                      (status transitions)
+│   │   ├── tokens.ts, session.ts, staff-auth.ts
+│   │   ├── storage.ts                     (S3 client, presigned URLs)
+│   │   ├── email/                         (adapter, templates)
+│   │   ├── transcription/                 (adapter, fake adapter)
+│   │   ├── springpod-match/               (adapter, "none" adapter)
+│   │   ├── audit.ts                       (writeAuditEvent)
+│   │   ├── track.ts                       (track(event, payload))
+│   │   ├── rate-limit.ts
+│   │   └── db.ts
+│   └── middleware.ts                      (admin guard, security headers)
+├── worker/
+│   ├── index.ts                           (pg-boss queues and schedules)
+│   └── jobs/                              (media-probe, media-normalise, media-transcribe, story-prescreen, springpod-match, quote-card-render, email-send, safeguarding-notify, retention-sweep)
+├── tests/
+│   └── e2e/                               (Playwright: flow per mode, under 14, minor gating, admin approve gating, content pack channels)
+├── Dockerfile.app, Dockerfile.worker
+└── .env.example
+```
+
+---
+
+## 4. Flow engine and question config
+
+Architecture rule 1 in the PRD: changing the flow is a config change.
+
+- `src/flow/questions.ts` exports an ordered array of typed question definitions. Each has `id`, `kind` (`intro`, `single`, `tiles`, `text`, `multi`, `guide`, `story`, `transcript`, `draft`, `confirm`, `stop`, `done`), `chapter`, `title(state)`, `sub(state)`, `options(state)`, `when(state)`, `validate(value, state)`, `optional`, `preview` (shows the quote card), plus copy for placeholders and errors. All copy is the prototype copy.
+- Side effects on answer (for example, picking "Springpod student" sets the experience type to "Springpod virtual programme") are declared in config as `onAnswer(state)`, not in screen code.
+- `src/flow/engine.ts` holds pure functions: `visibleQuestions`, `nextId`, `prevId`, `chapterProgress`, `stepNumber`. The unit test required by acceptance criterion 2 changes a `when` in a test copy of the config and asserts the new path.
+- Screens are rendered by `kind`. Adding a question of an existing kind needs no new screen code.
+- History: each step pushes `?q=<id>` with the History API, so the phone back gesture and the on-screen back arrow behave the same. Deep links to a later step fall back to the first unanswered question.
+- Timing: single-choice answers advance after 260 ms; text answers on Continue or the keyboard's Next key. Validation runs on press and shows the message under the answers with `role="alert"`.
+- Focus: on each screen change focus moves to the question heading, so screen readers announce it.
+- Autosave (rule 5): the first server write happens when a valid age of 14 or over is given (see section 12). After that each answer debounces a `PATCH /api/draft`. The draft is keyed to an HTTP-only device cookie, then also to the email once given. Coming back on the same device resumes at the first unanswered question.
+
+---
+
+## 5. Screens and design system components
+
+Every screen sits in `FlowShell`: header, `ChapterProgress`, then the question, then `StickyActions` pinned to the bottom on phones. On desktop (from 700px, as in the prototype) the question sits in a `ui/card` in a centred 520px column with the button under the answers.
+
+Common pieces:
+
+| Piece | Component |
+|---|---|
+| Header logo | `ui/springpod-logo` (ink follows `currentColor`, so full colour on light and all white in dark mode). Wrapping link, 150px minimum |
+| Back arrow | `ui/button` (ghost, icon size) with `IconShortArrowBack` |
+| Chapter progress | Local `ChapterProgress`: four `ui/progress` bars, chapter name under them (see section 6) |
+| Question title and sub | Typography tokens only |
+| Single choice | `ui/form-select-button` (`FormSelectGroup` single, `FormSelectButton`), responsive size. Gives the arrow, Enter, Space, Home, End keyboard model |
+| Text input | `ui/input` in `ui/field` with `FieldError` |
+| Validation message | `ui/field` `FieldError` (`role="alert"`) |
+| Primary button | `ui/button`, full width on phones. Secondary actions use secondary, outline or ghost and never stretch |
+| Text links ("See all tips", "Change how I tell it", "Select all") | `ui/button` ghost or link style, or `ui/text-link` where it navigates |
+
+Screen by screen:
+
+| Screen | Ref | Components |
+|---|---|---|
+| Start | 01, 40 | Local `StartBox` (navy surface from tokens), local `ExampleReel` and `ExampleCard`. Inside: `ui/tag` "Example stories", `ui/avatar` (portraits), `ui/play-button` (white colourway), `ui/video-timer` (duration), `ui/content-type-tag` (Video, Voice note chips; see Q9 for Written), `ui/progress` (video card progress, decorative). Facts list with `IconTime`, `IconMic`, `IconPadlock`. `ui/button` teal colourway "Start my story" |
+| Who | 02 | `FormSelectGroup` single with sub-lines |
+| Age | 03 | `FormSelectGroup` single in a 2x2 grid |
+| Under 14 stop | (in prototype) | Title, sub, `ui/button` "Change my age" |
+| First name | 04 | `ui/input` (`autocomplete="given-name"`) |
+| Experience type | 05 | `FormSelectGroup` single |
+| Area or job | 06 | `ui/input` |
+| Organisation | 07 | `ui/input`; button reads "Skip" when empty, "Continue" when filled |
+| What now | 08 | `FormSelectGroup` single |
+| Current role, company | 09, 10 | `ui/input` |
+| Industry | 11 | `FormSelectGroup` single, compact tile grid |
+| Interview or self | 12 | `FormSelectGroup` single with leading icons (`IconChat`, pen icon: see Q8) |
+| Voice, video or write | 13 | `FormSelectGroup` single with icons (`IconMic`, `IconVideo`, pen) |
+| Video and voice guidance | 14, 25 | Local `GuideTips` list (icons from the package where they exist, Q8), local `PromptCard` (navy), `ui/button` "I'm ready to film" / "I'm ready to record" |
+| Capture | 15 | Local `CaptureTiles` (two large tiles wrapping hidden file inputs, `capture` on the first), short tips line, `ui/button` link "See all tips", "Change how I tell it" |
+| Checks | 16, 26 | Native `<video>` or `<audio>` preview with controls, `ui/alert` verdict banner (success, warning, destructive), local `CheckList` (`aria-live="polite"`), upload progress row from `ui/file-upload` (`FileUploadItem`), `ui/spinner` while checking. Buttons per PRD 6.5 |
+| Transcript | 17 | `ui/textarea`, word count in mono, `ui/alert` while the transcript is still processing (copy gap) |
+| Write it | (in prototype) | `ui/textarea`, live word count "150 to 400 works best" |
+| Interview | 27 | Local `InterviewChat` with `ChatBubble` and `TypingIndicator` (`aria-live="polite"`), interviewer avatar `ui/avatar` with `BrandIconRocket` on navy, `StoryStrength` (`ui/progress`, Q6), quick replies as `ui/pill`, composer `ui/textarea` plus `ui/button` teal icon button, hint line |
+| Draft and quote | 18 | `ui/input` (headline), `ui/textarea` (story, IBM Plex Serif via the serif token), `FormSelectGroup` single for the three quotes, `QuoteCard` live preview, `ui/input` for own quote (`maxLength` 160), skills as `ui/badge` (Q7), `ui/alert` "New version written" with `ui/button` ghost "Go back to previous version", `ui/button` secondary "Try a different version", `ui/skeleton` while writing |
+| Name display | 19 | `QuoteCard` preview above `FormSelectGroup` single |
+| Show company | 20 | Same as 19 |
+| Channels | 21 | `FormSelectGroup` multiple, `ui/button` link "Select all" / "Clear all". Nothing pre-selected |
+| Email | 22 | `ui/input` type email |
+| Parent email | (in prototype) | `ui/input` type email, must differ from the submitter's |
+| Confirm | 23 | `FormSelectGroup` multiple with two options (matches the prototype). Both start unselected (Q10) |
+| Done | 24 | `ui/alert` (success, warning for minors, info), skills, `QuoteCard`, `ui/button` "Share another story", local `Celebration` (Q5) |
+| Admin queue and detail | 42 | Admin header (`ui/springpod-logo`, `ui/text-link` "View the public form"); counts with `charts/kpi-card`; filters with `ui/filter-bar`, `FilterBarSelect`, `ui/selected-filter`, search with `ui/input-group`; queue rows with `ui/item` in `ui/scroll-area`; status chips `ui/badge`; "Example" marker `ui/tag`; detail in `ui/card`; facts as a definition list styled with tokens; flags as `ui/alert`; skills `ui/badge`; native media player; `CheckList` (automated); team checklist `ui/checkbox` in `ui/field`; Approve (`ui/button` primary, disabled with `ui/tooltip` saying why), Request changes (outline), Reject (destructive colourway); Request changes and Reject open `ui/dialog` with `ui/textarea`; content pack in `ui/card` blocks with Copy buttons and `ui/sonner` toasts; asset history in `ui/accordion`; downloads as `ui/button` links |
+| Below `md` in admin | | Queue collapses above the detail; filters move into a `ui/drawer` behind a Filters `ui/pill` (the package's filter-sheet recipe) |
+| Confirm, parent, remove, edit pages | not in prototype | Same shell, `ui/card`, `ui/alert`, `FormSelectGroup` (parent: Approve, Approve without name, Decline), `ui/button`. Copy is a gap (see `docs/copy-gaps.md`) |
+
+---
+
+## 6. Local compositions
+
+The package has no component for these. Each stays local, imports every primitive from the package and uses only tokens. Search terms tried are listed so the decision is auditable. Candidates for a design system request are marked.
+
+| Local component | Built from | Searches that found nothing suitable | Request to the design system? |
+|---|---|---|---|
+| `QuoteCard` | Tokens (navy, teal, serif type), `ui/avatar`, `ui/tag` for the trust label, `BrandIconRocket` (white) | "quote testimonial card" | Yes, likely reusable on springpod.com |
+| `ExampleReel`, `ExampleCard` | `ui/play-button`, `ui/video-timer`, `ui/content-type-tag`, `ui/avatar`, `ui/tag`, `ui/progress` | Checked `ui/carousel`: it is a horizontal swipe rail, not a stacked auto-advancing reel | No |
+| `InterviewChat`, `ChatBubble`, `TypingIndicator` | `ui/avatar`, `ui/textarea`, `ui/button`, `ui/pill` | "chat messages conversation with typing indicator" | Yes |
+| `CheckList`, `CheckRow` (pass, warning, fail, pending) | `IconCheckCircle`, `IconWarning`, `ui/spinner`, tokens for success, warning and destructive | "checklist of pass warning fail results" (`ui/contrast-tag` is AA contrast only) | Maybe |
+| `ChapterProgress` | Four `ui/progress` bars in a labelled group | `ui/stepper` is numbered dots, not segment bars | No |
+| `Waveform` (example voice card) | Tokens, decorative, `aria-hidden` | "audio player waveform voice note playback" | No |
+| `GuideTips`, `PromptCard` | Tokens, package icons | n/a | No |
+| `CaptureTiles` | `ui/card` surfaces wrapping file inputs, package icons | `ui/file-upload` is a dropzone list; used for the progress row only | No |
+| `StickyActions` | Layout with spacing tokens and safe-area insets | n/a | No |
+| `Celebration` (done) | Canvas, brand colour tokens, skipped for reduced motion | n/a | No |
+
+---
+
+## 7. Data model and Prisma schema
+
+Follows PRD section 13. Additions are marked `// added:` with the reason.
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StoryStatus {
+  draft
+  submitted
+  awaiting_email
+  awaiting_parent
+  in_review
+  approved
+  changes_requested
+  rejected
+  safeguarding_review
+  withdrawn
+}
+
+enum Who {
+  springpod
+  student
+  early
+  pro
+}
+
+// Under 14 is never stored (PRD 9.1)
+enum AgeBand {
+  age_14_17
+  age_18_24
+  age_25_plus
+}
+
+enum NowStatus {
+  school
+  college
+  uni
+  apprentice
+  working
+  other
+}
+
+enum StoryMode {
+  interview
+  self
+}
+
+enum StoryFormat {
+  interview
+  write
+  voice
+  video
+}
+
+enum DisplayChoice {
+  first
+  initial
+  anon
+}
+
+enum TrustLabel {
+  verified
+  community
+}
+
+enum Channel {
+  platform
+  website
+  blog
+  social
+}
+
+enum ParentStatus {
+  not_needed
+  pending
+  approved
+  approved_anonymous
+  declined
+}
+
+enum MediaKind {
+  voice
+  video
+}
+
+enum MediaStatus {
+  uploading
+  uploaded
+  processing
+  ready
+  failed
+  deleted
+}
+
+enum FlagType {
+  personal_data
+  named_org
+  named_person // added: pre-screen returns named_people
+  safeguarding
+  negative_named_org
+  other // added: pre-screen other_concerns
+}
+
+enum FlagSource {
+  ai
+  team
+  system // added: deterministic regex backstop (C8)
+}
+
+enum ReviewDecision {
+  approved
+  changes_requested
+  rejected
+}
+
+enum AssetKind {
+  linkedin
+  instagram
+  video_hook
+  blog
+  snippet
+  tags
+  quote_card_4x5
+  quote_card_9x16
+}
+
+enum StaffRole {
+  moderator
+  content
+}
+
+enum ActorType {
+  submitter
+  parent
+  staff
+  system
+}
+
+enum TurnRole {
+  assistant
+  user
+}
+
+enum TokenPurpose {
+  confirm_email
+  edit_story
+  parent_decision
+  remove_story
+}
+
+model Submitter {
+  id               String    @id @default(cuid())
+  email            String    @unique // stored lower-cased
+  emailConfirmedAt DateTime?
+  springpodUserId  String?
+  createdAt        DateTime  @default(now())
+  stories          Story[]
+  tokens           Token[]
+}
+
+model Story {
+  id            String         @id @default(cuid())
+  submitterId   String?        // null until the email step
+  submitter     Submitter?     @relation(fields: [submitterId], references: [id])
+  deviceIdHash  String?        // added: autosave and resume before an email is given (PRD rule 5)
+  status        StoryStatus    @default(draft)
+
+  who           Who?
+  ageBand       AgeBand?
+  firstName     String?
+  displayChoice DisplayChoice?
+  expType       String?
+  area          String?
+  organisation  String?
+  nowStatus     NowStatus?
+  nowRole       String?
+  nowCompany    String?
+  nowIndustry   String?
+  showCompany   Boolean?
+
+  mode          StoryMode?
+  format        StoryFormat?
+  writtenText   String?        // added: original written story, kept alongside the edited draft
+
+  headline      String?
+  story         String?
+  pullQuote     String?
+  quoteOptions  String[]
+  skills        String[]
+  advice        String?
+  sector        String?
+  previousDraft Json?          // added: one-step "Go back to previous version"
+
+  trustLabel        TrustLabel @default(community)
+  verifiedManuallyBy String?   // added: staff id when a moderator verifies by hand (PRD 10.3)
+  promptVersion     String?    // added: ai-prompts.md asks for this on each story
+  interviewEndedBy  String?    // added: "ai_end", "safeguarding", "user_done", "hard_stop"
+
+  createdAt     DateTime       @default(now())
+  submittedAt   DateTime?
+  updatedAt     DateTime       @updatedAt
+
+  consent        Consent?
+  interviewTurns InterviewTurn[]
+  media          Media[]
+  flags          Flag[]
+  review         Review?
+  assets         Asset[]
+  auditEvents    AuditEvent[]
+  tokens         Token[]
+
+  @@index([status, submittedAt])
+  @@index([deviceIdHash])
+}
+
+model Consent {
+  id              String       @id @default(cuid())
+  storyId         String       @unique
+  story           Story        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  channels        Channel[]
+  termsVersion    String
+  acceptedAt      DateTime
+  marketingOptIn  Boolean      @default(false)
+  parentEmail     String?      // never selected in admin or export queries
+  parentStatus    ParentStatus @default(not_needed)
+  parentDecidedAt DateTime?
+}
+
+model InterviewTurn {
+  id         String   @id @default(cuid())
+  storyId    String
+  story      Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  role       TurnRole
+  content    String
+  quickReply Boolean  @default(false) // added: "Ask it differently", "Skip this one"
+  createdAt  DateTime @default(now())
+
+  @@index([storyId, createdAt])
+}
+
+model Media {
+  id                   String      @id @default(cuid())
+  storyId              String
+  story                Story       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  kind                 MediaKind
+  storageKey           String
+  uploadId             String?     // added: S3 multipart upload id, for resume and abort
+  originalName         String
+  mimeType             String?     // added
+  sizeBytes            BigInt
+  durationS            Float?
+  width                Int?
+  height               Int?
+  browserChecks        Json?
+  serverChecks         Json?
+  transcriptRaw        String?
+  transcriptEdited     String?
+  transcriptConfidence Float?
+  transcriptSegments   Json?       // added: timestamps, needed for the SRT download
+  posterKey            String?
+  normalisedKey        String?
+  waveformKey          String?     // added: PRD 7.2 step 4 produces waveform JSON
+  status               MediaStatus @default(uploading)
+  current              Boolean     @default(true) // added: false once replaced by "Film again"
+  deleteAfter          DateTime?   // added: retention sweep
+  deletedAt            DateTime?
+  createdAt            DateTime    @default(now())
+
+  @@index([storyId, current])
+  @@index([deleteAfter])
+}
+
+model Flag {
+  id         String     @id @default(cuid())
+  storyId    String
+  story      Story      @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  type       FlagType
+  detail     String
+  source     FlagSource
+  resolvedBy String?
+  resolvedAt DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@index([storyId, resolvedAt])
+}
+
+model Review {
+  id         String          @id @default(cuid())
+  storyId    String          @unique
+  story      Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  checklist  Json            @default("{}") // item id -> { by, at }
+  decision   ReviewDecision?
+  reason     String?
+  decidedBy  String?
+  decidedAt  DateTime?
+  // Earlier decisions are kept in AuditEvent
+}
+
+model Asset {
+  id          String    @id @default(cuid())
+  storyId     String
+  story       Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  kind        AssetKind
+  content     String?
+  storageKey  String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  withdrawnAt DateTime? // added: PRD 9.3 marks assets withdrawn
+
+  @@index([storyId, kind, createdAt])
+}
+
+model AuditEvent {
+  id        String    @id @default(cuid())
+  storyId   String?
+  story     Story?    @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  actorType ActorType
+  actorId   String?   // staff id; never an email
+  action    String
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([storyId, createdAt])
+}
+
+// added: staff roles behind Google SSO (PRD 11)
+model StaffUser {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  role      StaffRole
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+}
+
+// added: single-use links (confirm, edit, parent decision, remove)
+model Token {
+  id          String       @id @default(cuid())
+  tokenHash   String       @unique
+  purpose     TokenPurpose
+  submitterId String?
+  submitter   Submitter?   @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  storyId     String?
+  story       Story?       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+// added: under 14 keeps only an anonymous count (PRD 9.1)
+model BlockedCount {
+  day   DateTime @id @db.Date
+  count Int      @default(0)
+}
+```
+
+Notes:
+
+- Emails live only on `Submitter` and `Consent.parentEmail`. Admin and export queries go through typed selectors in `src/lib/admin-queries.ts` that never select those fields, and a test asserts no admin API response contains an `@`-shaped email field.
+- `pg-boss` creates its own `pgboss` schema; nothing to add here.
+- Remove-my-story links are permanent until used, so `remove_story` tokens get a long expiry (Q14).
+
+---
+
+## 8. Statuses and gates
+
+The PRD lists `awaiting_parent` as a status, and also says Approve is disabled while parent consent is pending, which implies the team can review those stories. The build does both:
+
+```
+draft
+  └─ submit ──> submitted ──(pre-screen job)──┬─> safeguarding_review   (any safeguarding concern, or [[SAFEGUARDING]] in the interview)
+                                              └─> awaiting_email       (magic link sent)
+awaiting_email ──(email confirmed)──┬─> awaiting_parent   (age 14 to 17 and parent pending)
+                                    └─> in_review
+awaiting_parent ──(parent approves or approves without name)──> in_review
+awaiting_parent ──(parent declines)──> rejected (reason: parent declined; media deleted after 30 days)
+in_review ──> approved | changes_requested | rejected
+changes_requested ──(submitter edits and resubmits)──> submitted
+any public status ──(remove link)──> withdrawn
+```
+
+- Stories in `awaiting_parent` appear in the queue (filterable). Moderators can read them and tick the checklist; Approve stays disabled.
+- `safeguarding_review` stories are out of the normal queue and visible under a Safeguarding filter only.
+- `src/lib/gates.ts` exports `approveBlockers(story)` returning a list of reasons (parent pending, open safeguarding review, unticked checklist items for stories with media). The UI disables Approve and shows the reasons in a tooltip; the API refuses the same call. Playwright covers acceptance criterion 8.
+- If the parent chooses "Approve without name", `displayChoice` is forced to `anon` and logged.
+- Every transition writes an `AuditEvent` in the same database transaction.
+
+---
+
+## 9. API routes
+
+All mutating routes check origin, validate input with `zod` and are rate limited.
+
+| Route | Who | Purpose |
+|---|---|---|
+| `POST /api/draft` | Public | Create the draft story once age is 14 or over; set device cookie |
+| `PATCH /api/draft` | Public (device cookie) | Autosave answers |
+| `POST /api/blocked` | Public | Increment the anonymous under-14 count; delete any draft for the device |
+| `POST /api/interview/turn` | Public | Store the user turn, stream the next interviewer message, handle markers and the 9-answer hard stop, fall back to fixed questions |
+| `POST /api/story/generate` | Public | Draft or regenerate (stores the previous draft) |
+| `POST /api/uploads/create`, `/sign-part`, `/complete`, `/abort` | Public | S3 multipart; `complete` queues `media-probe` |
+| `GET /api/media/[id]/status` | Public | Server check results, transcript readiness |
+| `PATCH /api/media/[id]/transcript` | Public | Save the edited transcript |
+| `POST /api/story/submit` | Public | Consent, email, parent email; status to `submitted`; queue pre-screen and emails |
+| `GET /confirm/[token]`, `/parent/[token]`, `/remove/[token]`, `/edit/[token]` | Token holder | Pages backed by server actions |
+| `/api/admin/*` | Staff | Status changes, checklist ticks, flag resolve, manual verify, content pack, signed media and asset downloads, publish email trigger |
+
+---
+
+## 10. Media pipeline and background jobs
+
+### In the browser
+
+1. Person picks a file. `browser-analyse.ts` reads metadata, frames and audio; `checks.ts` applies the PRD 7.1 thresholds. Undecodable files give warnings, never fails.
+2. As soon as type, size and length checks are not failing, the multipart upload starts (`media.status = uploading`), so it runs while the remaining checks resolve and while the person reads them. If a later check fails, the upload is aborted and the record discarded.
+3. "Use this video" stores the browser check results. "Film again" or "Upload a different file" marks the old media `current = false` and queues its deletion.
+4. The transcript screen polls `GET /api/media/[id]/status` (every 2 seconds, backing off) until the transcript is ready, showing upload then transcription progress.
+
+### Worker jobs (pg-boss queues)
+
+| Job | Trigger | Steps | Notes |
+|---|---|---|---|
+| `media-probe` | Upload complete | ffprobe (container, codecs, duration, dimensions, rotation, audio track); EBU R128 loudness, clipping and silence ratio; extract a 16 kHz mono audio file; queue `media-transcribe` and `media-normalise` in parallel | High priority. Results saved to `serverChecks` straight away |
+| `media-transcribe` | After probe | Send extracted audio to the transcription adapter; save raw transcript, segments and confidence | High priority: the person is waiting on the transcript screen |
+| `media-normalise` | After probe | Frame brightness and blur from sampled frames; normalise to H.264/AAC MP4 or AAC M4A; poster frame; waveform JSON; upload outputs | Normal priority. Acceptance criterion 7: all done within 2 minutes for a 90-second video |
+| `story-prescreen` | Submit, resubmit | AI pre-screen on story, transcript and interview turns, plus the regex backstop; write `Flag` rows; route to `safeguarding_review` if needed | |
+| `safeguarding-notify` | Safeguarding flag | Email the safeguarding lead with an admin link and no story content | |
+| `springpod-match` | Email confirmed | Call the matching adapter; set `trustLabel` | Adapter is "none" until the API exists |
+| `quote-card-render` | Content pack, approval | Headless Chromium screenshots the render route at both sizes; store PNGs as assets | |
+| `email-send` | Any email | Render template, send through the adapter, audit the template name (never the address) | Retries with backoff |
+| `retention-sweep` | Daily cron | Delete media and derived files past `deleteAfter`; mark assets withdrawn; delete expired tokens; delete abandoned drafts (Q12) | Acceptance criterion 12 |
+
+Failed jobs retry three times with backoff, then mark the media `failed` and raise a `system` flag so the team sees it. A 250 MB upload never touches the app server.
+
+---
+
+## 11. AI integration
+
+- `src/lib/ai/prompts.ts` holds the four prompts from `docs/ai-prompts.md` verbatim, with `PROMPT_VERSION`. The version is saved on each story.
+- Interview turns use the fast model with streaming (server-sent events to the browser). The server strips `[[END]]` and `[[SAFEGUARDING]]` before forwarding text, enforces the 9-answer hard stop and switches to the fallback questions on any API error or timeout.
+- Draft, content pack and pre-screen use the balanced model with JSON output validated by `zod`. On invalid output: one retry, then the documented fallback (`pickQuotes` and `fallbackDraft` ported from the prototype for drafts; for the pre-screen, no fallback: the story is held and flagged for manual review rather than passed as clean).
+- Content pack: only assets for agreed channels. Mapping, as in the prototype: social gives LinkedIn, Instagram and the video hook; blog gives blog title and intro; website or Springpod gives the website snippet; tags always (Q11).
+- Red-team script (acceptance criterion 9): `tests/ai/interviewer-redteam.test.ts`, 30 scripted conversations run against the real API behind an env flag, asserting no question asks for surname, school or contact details, and that the harm scenario ends with signposting and `[[SAFEGUARDING]]`.
+- Cost and abuse: per-device and per-IP limits on interview turns and regenerations (Q13).
+
+---
+
+## 12. Auth, tokens and privacy
+
+- Staff: Google Workspace SSO through Auth.js, allowed only for the Springpod domain and an active `StaffUser` row. `content` role adds the content pack. `/admin` is guarded in middleware and again in every admin route.
+- Submitters: no passwords. Submit sends a confirm link. Edit, parent decision and remove links are single-use tokens stored as SHA-256 hashes. Parent links expire after 14 days (PRD 14).
+- Under 14: nothing is written to the server until a valid age is chosen. Picking "Under 14" sends only an anonymous increment; if a draft exists for the device (age changed later), it is deleted.
+- Data minimisation: first name only; no surname, school or address fields anywhere. Pre-screen catches them in free text.
+- Media private by default, presigned URLs only, short expiry (15 minutes for playback, longer for staff downloads).
+- Security headers and a strict content security policy in middleware.
+
+---
+
+## 13. Emails
+
+React Email templates, plain text versions, British English, no em dashes. All six triggers from PRD 14. Every submitter email has a "Remove my story" link. Copy is not in the prototype: drafts go in `docs/copy-gaps.md` for approval before milestone 7.
+
+---
+
+## 14. Tracking
+
+`src/lib/track.ts` exposes `track(event, payload)`. Development logs to the console; production sends to GA4 (measurement ID from env). Events and payloads exactly as PRD 16. Free text is never sent: the helper takes a typed payload per event, so a free-text field cannot be passed. Funnel steps: start, each chapter, submit, confirmed, approved.
+
+---
+
+## 15. Testing and checks
+
+Run at every milestone sign-off: `pnpm test`, `pnpm test:e2e`, `pnpm lint` (ESLint, TypeScript, em dash check), `pnpm build`, `npx springpod-audit src --json`.
+
+| Acceptance criterion | Test |
+|---|---|
+| 1 Screens match prototype | Playwright screenshots at 390px for every screen, compared by eye against `design/screens/` at sign-off |
+| 2 Config-driven flow | Vitest on `engine.ts` |
+| 3 Age rules | Playwright (under 14 stop), Vitest on gates |
+| 4 Nothing pre-ticked | Playwright asserts unselected state on channels, confirm and marketing |
+| 5 Browser check thresholds | Vitest, one test per PRD 7.1 row plus undecodable input |
+| 6 Resumable 200 MB upload on throttled 4G | Playwright with network throttling and a forced disconnect, plus a manual phone test |
+| 7 Server results within 2 minutes | Worker integration test with a 90-second fixture video |
+| 8 Approve gating | Playwright on admin |
+| 9 Interviewer red team | AI test suite, behind a flag |
+| 10 Content pack channels | Vitest on the channel mapping |
+| 11 Quote card never clips | Playwright at 18px with a 160-character quote |
+| 12 Emails and withdrawal | Integration test with the console email adapter and the retention job |
+| 13 Build, lint, audit | CI |
+| 14 Lighthouse | Lighthouse CI on the start screen and one question screen |
+
+CI: a GitHub Actions workflow running lint, unit tests, build and the audit on every push (milestone 1).
+
+---
+
+## 16. Milestone breakdown
+
+| # | Milestone | Main files | Notes |
+|---|---|---|---|
+| 1 | Foundation | Next.js app, package install and `springpod-init`, theme, header, `flow/*`, `FlowShell`, `ChapterProgress`, every question screen with placeholders for capture, start screen with the example reel, em dash check, CI | Click through every question, no server yet (local state only) |
+| 2 | Data and accounts | Prisma schema and migrations, autosave, submit, tokens, confirm page, statuses, audit events, console email adapter | |
+| 3 | Write and interview | Write mode, interview route with streaming, fallbacks, story strength, safeguarding end | Needs an Anthropic API key in the environment |
+| 4 | Media | Guidance, capture, browser checks and tests, Uppy multipart, worker container with probe, normalise and transcribe (fake adapter), transcript screen | Needs a bucket and ffmpeg in the worker image |
+| 5 | Draft, quote and consent | Draft route, quote picker, `QuoteCard`, sharing screens, parent flow, confirm, done | |
+| 6 | Admin | SSO, roles, queue, filters, detail, flags, pre-screen job, checklist, gates, request changes, reject | Needs a Google OAuth client |
+| 7 | Content pack and emails | Content pack, PNG render, video and SRT downloads, all emails | Needs the email provider (or stays on the console adapter) |
+| 8 | Polish and acceptance | Responsive and accessibility pass, device tests, Lighthouse, tracking, acceptance report | Real-device camera tests need someone with phones |
+
+---
+
+## 17. Placeholders for PRD section 21 open decisions
+
+Not resolved here. Each gets a visible placeholder in the build and appears in the final report.
+
+| Open decision | Placeholder in the build |
+|---|---|
+| Hosting and stack fit | Two containers (app, worker), Postgres, S3-compatible bucket. Nothing provider-specific |
+| Transcription provider | `TranscriptionProvider` interface; `fake` adapter returns the prototype sample transcript with timestamps |
+| Email provider | `EmailProvider` interface; `console` adapter logs rendered emails |
+| Springpod account matching API | `SpringpodMatcher` interface; `none` adapter always returns no match; moderators can verify by hand in the admin |
+| Industry list | Prototype's 11 options in `src/flow/options.ts`, marked `PLACEHOLDER (PRD 21)` |
+| Retention periods and DPIA | Constants in `src/lib/retention.ts` (30 days rejected or withdrawn; 12-month review flag), marked as placeholders |
+| Designated safeguarding lead | `SAFEGUARDING_LEAD_EMAIL` env var; if unset, the admin shows a warning banner and flags still route to `safeguarding_review` |
+| Partner approval process | Named organisation flag only, as the PRD says |
+| In-browser recording (phase 2) | Not built |
+| Face, logo and screen detection (phase 2) | Not built; `serverChecks` schema leaves room for it |
+| Voice answers in the interview | Not built; text only |
+| Real stories on the start screen | Prototype examples kept, with the "Example stories" tag |
+| Stock photo licence | Credits kept in `design/assets/CREDITS.md`; portraits re-encoded to AVIF and WebP |
+
+---
+
+## 18. New questions for review
+
+None of these block milestone 1 except Q1 to Q3. My proposed default is in brackets. I'll use it unless you say otherwise.
+
+1. **Trust label in the public flow.** The quote card preview shows a trust label before the email is matched. Show "Verified by Springpod" in the preview for people who pick "Springpod student" (as the prototype does), knowing the stored label may end up "Community story" if there's no match? Or show "Community story" to everyone until matched? (Default: follow the prototype in the preview only; stored and published label follows the match.)
+2. **Hosting for milestone 1.** I need somewhere to run Postgres and, from milestone 4, a bucket and a worker. For local development I'll use Docker Compose (Postgres, MinIO for S3). Is there a Springpod preview environment to deploy to, or is local enough until the stack decision? (Default: local only.)
+3. **Design system access.** The npm package is public, good. Is there a Figma file or a newer package version than 0.2.0 I should build against? (Default: 0.2.0, upgrade when a new version ships.)
+4. **Next.js versus the PRD's other stack choices.** Fine to start milestone 1 on Next.js before the platform team confirms (PRD 21 says confirm before milestone 1)? (Default: start; the flow engine and components move to any React stack.)
+5. **Celebration on the done screen.** The prototype fires confetti on submit (skipped for reduced motion). It isn't a reward, but `CLAUDE.md` says no rewards. Keep it? (Default: keep, reduced-motion safe.)
+6. **Story strength colour.** The prototype bar is blue (the package's learning-progress look), but the package says `ui/learning-progress` is for learning surfaces only. Use `ui/progress` (navy or teal fill) instead? (Default: `ui/progress`.)
+7. **Skill chips.** The prototype shows teal chips. The package options are `ui/badge` (status), `ui/tag` (uppercase category) and `ui/pill` (interactive). (Default: `ui/badge`, with a design system request if no colourway fits.)
+8. **Missing icons.** The package has mic, video, chat, time, padlock, warning, check-circle, rocket and arrows, but no pen, upload, sun, eye, hand or shield. Use `lucide-react` (already a package dependency) for the gaps, or wait for the design system? (Default: lucide for the gaps, listed for a design system request.)
+9. **"Written" type chip.** `ui/content-type-tag` covers video and audio but not written. (Default: compose a matching chip from `ui/tag` for Written.)
+10. **Confirm screen controls.** The prototype uses the answer-button style with a square mark for the two consent boxes; the PRD calls them checkboxes. (Default: `FormSelectGroup` multiple, as the prototype, since it already exposes pressed state to screen readers.)
+11. **Tags in the content pack.** Tags are generated whatever the channels. They are internal SEO tags, not published copy. OK? (Default: yes.)
+12. **Abandoned drafts.** The PRD doesn't say how long unsubmitted drafts are kept. (Default: delete after 30 days, flagged for the DPO with the other retention items.)
+13. **Bot and cost protection.** The interview and draft routes call Claude for anonymous visitors. Rate limits are planned. Add a challenge (for example Cloudflare Turnstile) on Start? (Default: rate limits only for now.)
+14. **Remove link lifetime.** The "Remove my story" link in emails. (Default: valid until used, never expires; a used link shows the removed state.)
+15. **Parent declines.** Story goes to `rejected` with reason "Parent declined", and media is deleted after 30 days. Should the submitter be emailed? (Default: no email, to avoid friction at home; flagged for safeguarding input.)
+16. **Edit after changes requested.** The prototype has no screen for this. (Default: the edit link opens the draft screen with the team's message in a `ui/alert`, then confirm and resubmit.)
+17. **Transcript wait.** If the transcript isn't ready when the person reaches the transcript screen, they wait on a progress state (copy gap). Acceptable, or let them carry on and edit later? (Default: wait; the 90-second target makes this short.)
