@@ -4,7 +4,7 @@ Milestone 0 output. Running document: decisions, conflicts and open questions ar
 
 | | |
 |---|---|
-| Status | Milestone 0 approved with the default answers to section 18. Milestone 1 (foundation) built, for review. Log in section 19 |
+| Status | Milestones 0 and 1 approved. Milestone 2 (data and accounts) built, for review. Infrastructure choices (hosting, transcription, storage) are with the CTO. Log in section 19 |
 | Sources read | `CLAUDE.md`, `docs/PRD.md`, `docs/ai-prompts.md`, `design/README.md`, the prototype (all screens, flow engine, checks, interview, draft, admin) and every PNG in `design/screens/` |
 | Design system | `@springpod/design-system@0.2.0` (public on npm). Ships `springpod-audit` and `springpod-init` as package bins, so `npx springpod-audit src --json` works once installed |
 
@@ -871,3 +871,33 @@ Answers recorded after milestone 1 review:
 |---|---|---|
 | M1.19 | No rocket anywhere in the product. Removed from the quote card footer. The interviewer avatar (milestone 3) will use the package chat glyph on navy instead | Owner decision (Q19). Overrides PRD 5.4 ("white rocket mark" in the card footer) and PRD 6.1 ("interviewer avatar is the white rocket on navy"). The Springpod logo in the header is unchanged: it is the brand mark, and the logo rules say never recompose it |
 | M1.20 | No drift-audit pre-commit hook | Owner decision (Q18). CI runs `springpod-audit` on every pull request |
+
+### Milestone 2: Data and accounts
+
+What's built: the Prisma schema from section 7 and its first migration; autosave of answers to Postgres once an age is given; resume on the same device; the under-14 rule (nothing stored, any draft deleted, an anonymous daily count); submit with consent; single-use, hashed magic links; the confirm page; the status state machine; and audit events for every state change. Email goes to a console adapter until a provider is chosen.
+
+Versions added: Prisma 7.10 with the `pg` driver adapter, zod 4.
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M2.1 | Infrastructure stays provider-neutral until the CTO confirms. Proposal on the table: AWS London (Transcribe, S3, ECS Fargate, RDS Postgres) | Milestone 2 needs only Postgres, which any of the options provide |
+| M2.2 | Autosave stores story answers only. Email, parent or carer email, channels and the consent boxes go to the server once, at submit | Keeps unconfirmed contact details and half-made consent choices out of the database. On resume people re-answer the sharing screens, which also keeps every consent choice fresh and unticked |
+| M2.3 | Drafts are keyed to an HTTP-only device cookie (30 days), stored as a hash. Not yet keyed to email | PRD 4 rule 5 also says "and, once given, the email". Resuming on another device by email needs a sign-in link and a screen the prototype doesn't have. Question 20 |
+| M2.4 | Confirm links last 7 days and work more than once until then | The PRD gives no expiry for confirm links. Re-use is harmless and stops email scanners that open links first from locking people out |
+| M2.5 | Every story needs its own email confirmation, even from an address confirmed before | Confirming proves the person sending this story controls the inbox |
+| M2.6 | Rate limits are in memory: autosave 120 a minute per device and 600 a minute per connection; submit 10 an hour per connection and 5 an hour per email address | Enough for one app instance. Moves to a shared store when the app runs on several instances |
+| M2.7 | The AI pre-screen step is a marked placeholder: submit moves straight from `submitted` to `awaiting_email` and logs `prescreen_skipped` | The pre-screen arrives in milestone 6 |
+| M2.8 | `TERMS_VERSION` is `draft-2026-10`, a placeholder | The terms text is copy gap G16 |
+| M2.9 | Resume lands on the first question still needing an answer. Optional questions left empty count as answered | An empty optional answer and a skipped one look the same |
+| M2.10 | The database client connects on first use, not on import | The production build loads route modules and must not need a database |
+| M2.11 | The console email provider masks addresses in logs and can write emails to a folder for tests (`EMAIL_OUTBOX_DIR`) | Keeps full addresses out of logs, and lets the browser tests follow real confirm links |
+| M2.12 | Consent records store the channels, terms version and time, marketing choice, and parent email and status (PRD 9.2). Name display and show-company choices sit on the story itself, as in PRD 13 | As specified |
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` 50 tests pass (39 unit, 11 integration against Postgres); `pnpm test:e2e` 23 Playwright tests pass, including submit, the confirm link, resume after reload, start again and under 14; `pnpm build` passes with and without a database URL; `npx springpod-audit src --json` reports no drift.
+
+New questions:
+
+20. **Resume on another device.** Should people be able to pick up a draft on a different device, using their email? It needs a "send me a link" screen the prototype doesn't have. (Default: same device only for now.)
+21. **Confirm link lifetime.** 7 days (M2.4)? (Default: 7 days.)

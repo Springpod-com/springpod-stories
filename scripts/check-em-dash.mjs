@@ -6,6 +6,8 @@ import { join, extname } from "node:path";
 
 const ROOTS = ["src", "docs", "scripts", "tests", "README.md", "CLAUDE.md", "KICKOFF_PROMPT.md"];
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".css", ".md", ".json", ".html"]);
+// Generated code is not ours to edit.
+const SKIP_DIRS = new Set([join("src", "generated")]);
 const EM_DASH = String.fromCodePoint(0x2014);
 
 function* walk(path) {
@@ -16,6 +18,7 @@ function* walk(path) {
     return;
   }
   if (stats.isDirectory()) {
+    if (SKIP_DIRS.has(path)) return;
     for (const entry of readdirSync(path)) yield* walk(join(path, entry));
   } else if (EXTENSIONS.has(extname(path))) {
     yield path;

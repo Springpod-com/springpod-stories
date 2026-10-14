@@ -1,4 +1,9 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { confirmLinkFor } from "./outbox";
+
+/** A unique address per test run, so parallel tests don't read each other's emails. */
+const uniqueEmail = (name: string, info: TestInfo) =>
+  `${name}.${info.project.name}.${info.workerIndex}.${Date.now()}@example.com`;
 
 /** Everything in the quote card sits inside its edges (PRD 5.4: never clip, the card grows). */
 async function expectCardNotClipped(card: Locator) {
@@ -46,7 +51,10 @@ test.describe("public flow", () => {
     await expect(page.getByRole("img", { name: "Springpod" })).toBeVisible();
   });
 
-  test("a student can click through every question to the done screen", async ({ page }) => {
+  test("a student can click through every question, send the story and confirm their email", async ({
+    page,
+  }, testInfo) => {
+    const email = uniqueEmail("priya", testInfo);
     await startAs(page, "Student", "18 to 24");
     await expect(heading(page)).toHaveText("Nice to meet you, Priya. What kind of experience was it?");
     await pick(page, "Internship");
@@ -87,7 +95,7 @@ test.describe("public flow", () => {
     await expect(heading(page)).toHaveText("What's your email?");
     await answer(page, "not-an-email");
     await expect(page.locator("[data-slot=field-error]")).toHaveText("That email doesn't look right. Check it and try again");
-    await answer(page, "priya@example.com");
+    await answer(page, email);
 
     await expect(heading(page)).toHaveText("Almost done. Please confirm.");
     await page.getByRole("button", { name: "Send my story" }).click();
@@ -97,8 +105,54 @@ test.describe("public flow", () => {
 
     await expect(heading(page)).toHaveText("Thanks, Priya. Your story is in.");
     await expect(page.getByText("Check your email to confirm it's you.")).toBeVisible();
-    await page.getByRole("button", { name: "Share another story" }).click();
-    await expect(heading(page)).toHaveText("Share your work experience story");
+
+    // The magic link from the email confirms it, and opening it again is harmless.
+    const link = confirmLinkFor(email);
+    expect(link).toBeTruthy();
+    for (let i = 0; i < 2; i++) {
+      await page.goto(link!);
+      await expect(heading(page)).toHaveText("Email confirmed");
+    }
+    await page.goto("/confirm/not-a-real-link");
+    await expect(heading(page)).toHaveText("This link doesn't work");
+  });
+
+  test("answers are saved as people go and pick up again after a reload", async ({ page }) => {
+    await startAs(page, "Student", "18 to 24");
+    await pick(page, "Internship");
+    await expect(heading(page)).toHaveText("What area or job was it in?");
+    await page.getByRole("textbox").fill("Marketing");
+    // Autosave waits for a short pause in typing.
+    await page.waitForResponse((r) => r.url().endsWith("/api/draft") && r.request().method() === "PUT");
+
+    await page.reload();
+    await page.getByRole("button", { name: "Start my story" }).click();
+    // Resumes at the first question still needing an answer. The organisation is optional, so it moves past it.
+    await expect(heading(page)).toHaveText("What are you doing now?");
+    await expect(page.getByText("Copy needed (G2)")).toBeVisible();
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Back" }).click();
+    await expect(heading(page)).toHaveText("What area or job was it in?");
+    await expect(page.getByRole("textbox")).toHaveValue("Marketing");
+
+    // Start again clears the saved answers
+    await page.reload();
+    await page.getByRole("button", { name: "Start my story" }).click();
+    await page.getByRole("button", { name: "Start again" }).click();
+    await expect(heading(page)).toHaveText("Which best describes you?");
+    await expect(page.getByRole("radio", { checked: true })).toHaveCount(0);
+    expect((await page.request.get("/api/draft")).status()).toBe(204);
+  });
+
+  test("nothing is saved for under 14s (PRD 9.1)", async ({ page }) => {
+    await startAs(page, "Student", "18 to 24");
+    await expect(heading(page)).toHaveText(/What kind of experience was it\?/);
+    await expect.poll(async () => (await page.request.get("/api/draft")).status()).toBe(200);
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Back" }).click();
+    await pick(page, "Under 14");
+    await expect(heading(page)).toHaveText("Stories are open to people aged 14 and over");
+    await expect.poll(async () => (await page.request.get("/api/draft")).status()).toBe(204);
   });
 
   test("nothing is pre-ticked on the sharing and confirm screens (acceptance criterion 4)", async ({ page }) => {
@@ -122,7 +176,7 @@ test.describe("public flow", () => {
     }
     await page.getByRole("button", { name: /^On our blog/ }).click();
     await page.getByRole("button", { name: "Continue" }).click();
-    await answer(page, "sam@example.com");
+    await answer(page, "sam@example.com"); // not submitted in this test
     await expect(page.getByRole("button", { name: /^This is my own experience/ })).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByRole("button", { name: /^Email me early careers opportunities/ })).toHaveAttribute(
       "aria-pressed",
@@ -167,7 +221,7 @@ test.describe("public flow", () => {
 
   test("people in work are asked about their role, company and industry, and whether to show the company", async ({
     page,
-  }) => {
+  }, testInfo) => {
     await startAs(page, "Working professional", "25 or over", "Tom");
     await expect(heading(page)).toHaveText("What field was your first job in, Tom?");
     await answer(page, "Construction");
@@ -195,7 +249,7 @@ test.describe("public flow", () => {
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: /^On Springpod/ }).click();
     await page.getByRole("button", { name: "Continue" }).click();
-    await answer(page, "tom@example.com");
+    await answer(page, uniqueEmail("tom", testInfo));
     await page.getByRole("button", { name: /^This is my own experience/ }).click();
     await page.getByRole("button", { name: "Send my story" }).click();
     await expect(heading(page)).toHaveText("Thanks, Tom. Your story is in.");

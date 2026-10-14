@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { OUTBOX_DIR } from "./tests/e2e/outbox";
+
 const PORT = 3100;
 // Cloud sessions ship a pre-installed Chromium; CI installs its own.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
@@ -32,6 +34,13 @@ export default defineConfig({
   ],
   webServer: {
     command: `pnpm build && pnpm start -p ${PORT}`,
+    env: {
+      APP_URL: `http://localhost:${PORT}`,
+      EMAIL_PROVIDER: "console",
+      // Tests read confirm links from here instead of a real inbox.
+      EMAIL_OUTBOX_DIR: OUTBOX_DIR,
+      SUBMIT_RATE_LIMIT: "1000",
+    },
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,

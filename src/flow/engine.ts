@@ -69,7 +69,8 @@ export function reachableId(questions: Question[], requested: string, s: FlowSta
   return requested;
 }
 
-function firstIncompleteId(questions: Question[], s: FlowState): string {
+/** The first question shown to this person that still needs an answer. Used to resume a saved draft. */
+export function firstIncompleteId(questions: Question[], s: FlowState): string {
   for (const q of visibleQuestions(questions, s)) {
     if (validationError(q, s)) return q.id;
   }

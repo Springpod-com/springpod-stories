@@ -7,10 +7,13 @@ This repo starts as the build pack: everything Claude Code needs to build the pr
 ## Develop
 
 ```bash
+cp .env.example .env
+docker compose up -d   # local Postgres (or point DATABASE_URL at your own)
 pnpm install
+pnpm db:migrate        # create the tables
 pnpm dev          # http://localhost:3000
 pnpm lint         # ESLint, TypeScript and the em dash check
-pnpm test         # unit tests (Vitest)
+pnpm test         # unit and database tests (Vitest; needs TEST_DATABASE_URL)
 pnpm test:e2e     # flow tests (Playwright)
 pnpm audit:ds     # design system drift audit
 ```

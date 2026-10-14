@@ -1,5 +1,7 @@
 "use client";
 
+import { Alert, AlertDescription, AlertTitle } from "@springpod/design-system/components/ui/alert";
+import { Button } from "@springpod/design-system/components/ui/button";
 import { Card } from "@springpod/design-system/components/ui/card";
 import { cn } from "@springpod/design-system/lib/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,10 +11,19 @@ import { QuoteCard } from "@/components/quote-card/quote-card";
 import { StartScreen } from "@/components/start/start-screen";
 import { DraftPlaceholder, StoryPlaceholder, TranscriptPlaceholder } from "@/components/story/placeholder-screens";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
-import { chapterName, chapterProgress, findQuestion, nextId, prevId, reachableId } from "@/flow/engine";
+import {
+  chapterName,
+  chapterProgress,
+  findQuestion,
+  firstIncompleteId,
+  nextId,
+  prevId,
+  reachableId,
+} from "@/flow/engine";
 import { QUESTIONS, type Question } from "@/flow/questions";
 import { initialState, resetForAnotherStory, type FlowState } from "@/flow/state";
 import { ChapterProgress } from "./chapter-progress";
+import { clearDraft, loadDraft, submitStory, useAutosave } from "./persistence";
 import { MultiChoiceScreen, SingleChoiceScreen, StopScreen, TextScreen } from "./question-screens";
 
 const STEP_PARAM = "q";
@@ -32,7 +43,7 @@ function stepUrl(id: string) {
 
 /**
  * The public story flow: one question per screen, driven by the question config.
- * State lives in the browser in milestone 1; server autosave arrives in milestone 2.
+ * Answers autosave to the server once an age is given, and a saved draft resumes on this device.
  */
 export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] }) {
   const [state, setState] = useState<FlowState>(initialState);
@@ -45,13 +56,32 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
   const position = useRef(0);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const firstRender = useRef(true);
+  // A saved draft was found for this device; Start picks up where it left off.
+  const [resumed, setResumed] = useState(false);
+  const [showResumeNotice, setShowResumeNotice] = useState(false);
+  // Once sent, nothing more is saved until "Share another story".
+  const [submitted, setSubmitted] = useState(false);
+
+  useAutosave(state, !submitted);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadDraft().then((saved) => {
+      if (cancelled || !saved || currentRef.current !== "intro") return;
+      setState(saved);
+      setResumed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     stateRef.current = state;
     currentRef.current = currentId;
   });
 
-  // Nothing is stored yet, so a reload or a shared link always starts at the start screen.
+  // A reload or a shared link starts at the start screen; Start then resumes any saved draft.
   useEffect(() => {
     window.history.replaceState({ wesStep: "intro", wesIndex: 0 } satisfies StepHistoryState, "", stepUrl("intro"));
     const onPop = (e: PopStateEvent) => {
@@ -87,16 +117,38 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
     currentRef.current = id;
     setDirection(1);
     setCurrentId(id);
+    setShowResumeNotice(false);
   }, []);
 
   const goNext = useCallback(
-    (next?: FlowState) => {
+    async (next?: FlowState): Promise<string | null> => {
       const s = next ?? stateRef.current;
       stateRef.current = s;
+      // The confirm screen sends the story before moving on to the done screen.
+      if (findQuestion(questions, currentRef.current).kind === "confirm") {
+        const failure = await submitStory(s);
+        if (failure) return failure;
+        setSubmitted(true);
+      }
       go(nextId(questions, currentRef.current, s));
+      return null;
     },
     [questions, go],
   );
+
+  const start = useCallback(() => {
+    if (!resumed) return void goNext();
+    go(firstIncompleteId(questions, stateRef.current));
+    setShowResumeNotice(true);
+  }, [resumed, goNext, go, questions]);
+
+  const startAgain = useCallback(() => {
+    void clearDraft();
+    setState(initialState);
+    stateRef.current = initialState;
+    setResumed(false);
+    go(nextId(questions, "intro", initialState));
+  }, [go, questions]);
 
   const goBack = useCallback(() => {
     const target = prevId(questions, currentRef.current, stateRef.current);
@@ -123,7 +175,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
   let screen: React.ReactNode = null;
   switch (q.kind) {
     case "intro":
-      screen = <StartScreen onStart={() => goNext()} headingRef={headingRef} />;
+      screen = <StartScreen onStart={start} headingRef={headingRef} />;
       break;
     case "single":
       screen = (
@@ -174,6 +226,8 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
           headingRef={headingRef}
           onAnother={() => {
             setState(resetForAnotherStory(stateRef.current));
+            setSubmitted(false);
+            setResumed(false);
             go("intro");
           }}
         />
@@ -185,6 +239,18 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
 
   return (
     <main className="mx-auto flex w-full max-w-130 flex-1 flex-col gap-4 px-4 pt-4 pb-0 md:pt-8 md:pb-12">
+      {showResumeNotice && (
+        // COPY GAP G2: placeholder until the resume message is written.
+        <Alert variant="info" data-placeholder>
+          <AlertTitle>Copy needed (G2)</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>Message for people coming back to a saved story goes here.</span>
+            <Button variant="link" size="sm" className="px-0" onClick={startAgain}>
+              Start again
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
       {showTopBar && (
         <ChapterProgress
           chapters={chapterProgress(questions, currentId, state)}

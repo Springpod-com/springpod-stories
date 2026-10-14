@@ -12,3 +12,5 @@ test-results/
 *.log
 next-env.d.ts
 *.tsbuildinfo
+src/generated/
+.e2e-outbox/

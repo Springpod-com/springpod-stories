@@ -3,6 +3,7 @@
 import { Button } from "@springpod/design-system/components/ui/button";
 import { FormSelectButton, FormSelectGroup } from "@springpod/design-system/components/ui/form-select-button";
 import { Input } from "@springpod/design-system/components/ui/input";
+import { Spinner } from "@springpod/design-system/components/ui/spinner";
 import { cn } from "@springpod/design-system/lib/utils";
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { MultiQuestion, Option, SingleQuestion, TextQuestion } from "@/flow/questions";
@@ -17,7 +18,8 @@ interface ScreenProps<Q> {
   question: Q;
   state: FlowState;
   onChange: (next: FlowState) => void;
-  onNext: (next?: FlowState) => void;
+  /** May return an error message (for example when sending the story fails). */
+  onNext: (next?: FlowState) => void | Promise<string | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }
 
@@ -119,6 +121,7 @@ export function MultiChoiceScreen({ question: q, state, onChange, onNext, headin
   const headingId = useId();
   const errorId = useId();
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const options = q.options(state);
   const value = q.get(state);
   const all = value.length === options.length;
@@ -157,12 +160,18 @@ export function MultiChoiceScreen({ question: q, state, onChange, onNext, headin
         <ValidationMessage id={errorId} message={error} />
         <Button
           className="w-full"
-          onClick={() => {
+          aria-busy={busy}
+          onClick={async () => {
+            if (busy) return;
             const message = q.validate(state);
-            if (message) setError(message);
-            else onNext();
+            if (message) return setError(message);
+            setBusy(true);
+            const failure = await onNext();
+            setBusy(false);
+            if (failure) setError(failure);
           }}
         >
+          {busy && <Spinner aria-hidden />}
           {q.submitLabel ?? "Continue"}
         </Button>
       </StickyActions>

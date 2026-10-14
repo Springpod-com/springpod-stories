@@ -1,0 +1,360 @@
+// Data model for Work Experience Stories (PRD section 13, build plan section 7).
+// Fields marked "added:" go beyond the PRD table; the reason is on the line.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum StoryStatus {
+  draft
+  submitted
+  awaiting_email
+  awaiting_parent
+  in_review
+  approved
+  changes_requested
+  rejected
+  safeguarding_review
+  withdrawn
+}
+
+enum Who {
+  springpod
+  student
+  early
+  pro
+}
+
+// Under 14 is never stored (PRD 9.1)
+enum AgeBand {
+  age_14_17
+  age_18_24
+  age_25_plus
+}
+
+enum NowStatus {
+  school
+  college
+  uni
+  apprentice
+  working
+  other
+}
+
+enum StoryMode {
+  interview
+  self
+}
+
+enum StoryFormat {
+  interview
+  write
+  voice
+  video
+}
+
+enum DisplayChoice {
+  first
+  initial
+  anon
+}
+
+enum TrustLabel {
+  verified
+  community
+}
+
+enum Channel {
+  platform
+  website
+  blog
+  social
+}
+
+enum ParentStatus {
+  not_needed
+  pending
+  approved
+  approved_anonymous
+  declined
+}
+
+enum MediaKind {
+  voice
+  video
+}
+
+enum MediaStatus {
+  uploading
+  uploaded
+  processing
+  ready
+  failed
+  deleted
+}
+
+enum FlagType {
+  personal_data
+  named_org
+  named_person // added: pre-screen returns named_people
+  safeguarding
+  negative_named_org
+  other // added: pre-screen other_concerns
+}
+
+enum FlagSource {
+  ai
+  team
+  system // added: deterministic regex backstop (C8)
+}
+
+enum ReviewDecision {
+  approved
+  changes_requested
+  rejected
+}
+
+enum AssetKind {
+  linkedin
+  instagram
+  video_hook
+  blog
+  snippet
+  tags
+  quote_card_4x5
+  quote_card_9x16
+}
+
+enum StaffRole {
+  moderator
+  content
+}
+
+enum ActorType {
+  submitter
+  parent
+  staff
+  system
+}
+
+enum TurnRole {
+  assistant
+  user
+}
+
+enum TokenPurpose {
+  confirm_email
+  edit_story
+  parent_decision
+  remove_story
+}
+
+model Submitter {
+  id               String    @id @default(cuid())
+  email            String    @unique // stored lower-cased
+  emailConfirmedAt DateTime?
+  springpodUserId  String?
+  createdAt        DateTime  @default(now())
+  stories          Story[]
+  tokens           Token[]
+}
+
+model Story {
+  id            String         @id @default(cuid())
+  submitterId   String?        // null until the email step
+  submitter     Submitter?     @relation(fields: [submitterId], references: [id])
+  deviceIdHash  String?        // added: autosave and resume before an email is given (PRD rule 5)
+  status        StoryStatus    @default(draft)
+
+  who           Who?
+  ageBand       AgeBand?
+  firstName     String?
+  displayChoice DisplayChoice?
+  expType       String?
+  area          String?
+  organisation  String?
+  nowStatus     NowStatus?
+  nowRole       String?
+  nowCompany    String?
+  nowIndustry   String?
+  showCompany   Boolean?
+
+  mode          StoryMode?
+  format        StoryFormat?
+  writtenText   String?        // added: original written story, kept alongside the edited draft
+
+  headline      String?
+  story         String?
+  pullQuote     String?
+  quoteOptions  String[]
+  skills        String[]
+  advice        String?
+  sector        String?
+  previousDraft Json?          // added: one-step "Go back to previous version"
+
+  trustLabel        TrustLabel @default(community)
+  verifiedManuallyBy String?   // added: staff id when a moderator verifies by hand (PRD 10.3)
+  promptVersion     String?    // added: ai-prompts.md asks for this on each story
+  interviewEndedBy  String?    // added: "ai_end", "safeguarding", "user_done", "hard_stop"
+
+  createdAt     DateTime       @default(now())
+  submittedAt   DateTime?
+  updatedAt     DateTime       @updatedAt
+
+  consent        Consent?
+  interviewTurns InterviewTurn[]
+  media          Media[]
+  flags          Flag[]
+  review         Review?
+  assets         Asset[]
+  auditEvents    AuditEvent[]
+  tokens         Token[]
+
+  @@index([status, submittedAt])
+  @@index([deviceIdHash])
+}
+
+model Consent {
+  id              String       @id @default(cuid())
+  storyId         String       @unique
+  story           Story        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  channels        Channel[]
+  termsVersion    String
+  acceptedAt      DateTime
+  marketingOptIn  Boolean      @default(false)
+  parentEmail     String?      // never selected in admin or export queries
+  parentStatus    ParentStatus @default(not_needed)
+  parentDecidedAt DateTime?
+}
+
+model InterviewTurn {
+  id         String   @id @default(cuid())
+  storyId    String
+  story      Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  role       TurnRole
+  content    String
+  quickReply Boolean  @default(false) // added: "Ask it differently", "Skip this one"
+  createdAt  DateTime @default(now())
+
+  @@index([storyId, createdAt])
+}
+
+model Media {
+  id                   String      @id @default(cuid())
+  storyId              String
+  story                Story       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  kind                 MediaKind
+  storageKey           String
+  uploadId             String?     // added: S3 multipart upload id, for resume and abort
+  originalName         String
+  mimeType             String?     // added
+  sizeBytes            BigInt
+  durationS            Float?
+  width                Int?
+  height               Int?
+  browserChecks        Json?
+  serverChecks         Json?
+  transcriptRaw        String?
+  transcriptEdited     String?
+  transcriptConfidence Float?
+  transcriptSegments   Json?       // added: timestamps, needed for the SRT download
+  posterKey            String?
+  normalisedKey        String?
+  waveformKey          String?     // added: PRD 7.2 step 4 produces waveform JSON
+  status               MediaStatus @default(uploading)
+  current              Boolean     @default(true) // added: false once replaced by "Film again"
+  deleteAfter          DateTime?   // added: retention sweep
+  deletedAt            DateTime?
+  createdAt            DateTime    @default(now())
+
+  @@index([storyId, current])
+  @@index([deleteAfter])
+}
+
+model Flag {
+  id         String     @id @default(cuid())
+  storyId    String
+  story      Story      @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  type       FlagType
+  detail     String
+  source     FlagSource
+  resolvedBy String?
+  resolvedAt DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@index([storyId, resolvedAt])
+}
+
+model Review {
+  id         String          @id @default(cuid())
+  storyId    String          @unique
+  story      Story           @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  checklist  Json            @default("{}") // item id -> { by, at }
+  decision   ReviewDecision?
+  reason     String?
+  decidedBy  String?
+  decidedAt  DateTime?
+  // Earlier decisions are kept in AuditEvent
+}
+
+model Asset {
+  id          String    @id @default(cuid())
+  storyId     String
+  story       Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  kind        AssetKind
+  content     String?
+  storageKey  String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  withdrawnAt DateTime? // added: PRD 9.3 marks assets withdrawn
+
+  @@index([storyId, kind, createdAt])
+}
+
+model AuditEvent {
+  id        String    @id @default(cuid())
+  storyId   String?
+  story     Story?    @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  actorType ActorType
+  actorId   String?   // staff id; never an email
+  action    String
+  payload   Json?
+  createdAt DateTime  @default(now())
+
+  @@index([storyId, createdAt])
+}
+
+// added: staff roles behind Google SSO (PRD 11)
+model StaffUser {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  role      StaffRole
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+}
+
+// added: single-use links (confirm, edit, parent decision, remove)
+model Token {
+  id          String       @id @default(cuid())
+  tokenHash   String       @unique
+  purpose     TokenPurpose
+  submitterId String?
+  submitter   Submitter?   @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  storyId     String?
+  story       Story?       @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+// added: under 14 keeps only an anonymous count (PRD 9.1)
+model BlockedCount {
+  day   DateTime @id @db.Date
+  count Int      @default(0)
+}
