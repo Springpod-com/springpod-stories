@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { uniqueEmail, expectCardNotClipped, interview, writeStory, heading, pick, answer, startAs, useGoodVideo } from "./helpers";
+import { uniqueEmail, expectCardNotClipped, interview, writeStory, heading, pick, answer, startAs, chooseGoodVideo } from "./helpers";
 import { confirmLinkFor, parentLinkFor } from "./outbox";
 
 test.describe("public flow", () => {
@@ -202,7 +202,7 @@ test.describe("public flow", () => {
     await pick(page, /^Video/);
     await expect(heading(page)).toHaveText("How to film a great video");
     await page.getByRole("button", { name: "I'm ready to film" }).click();
-    await useGoodVideo(page);
+    await chooseGoodVideo(page);
     await page.getByRole("button", { name: "Write up my story" }).click();
     await page.getByRole("button", { name: "Looks good" }).click();
     await pick(page, "First initial (A.)");
@@ -221,8 +221,9 @@ test.describe("public flow", () => {
     await expect(heading(page)).toHaveText("Thanks, Amara. Your story is in.");
 
     // The parent or carer gets a link to see the story and decide (PRD 9.1, 14).
+    // Sent by the worker once the pre-screen clears the story.
+    await expect.poll(() => parentLinkFor(parentEmail), { timeout: 30_000 }).toBeTruthy();
     const link = parentLinkFor(parentEmail);
-    expect(link).toBeTruthy();
     await page.goto(link!);
     await expect(heading(page)).toHaveText("Amara would like to share their story");
     await expect(page.getByText("On Springpod")).toBeVisible();

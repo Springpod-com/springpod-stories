@@ -13,7 +13,8 @@ pnpm install
 pnpm db:migrate        # create the tables
 pnpm storage:dev       # create the local media bucket
 pnpm dev          # http://localhost:3000
-pnpm worker       # media worker: checks, converts and transcribes uploads (needs ffmpeg)
+pnpm worker       # background jobs: media checks and transcripts, story pre-screen (needs ffmpeg)
+pnpm staff:add you@springpod.com moderator "Your Name"   # let someone into /admin
 pnpm lint         # ESLint, TypeScript and the em dash check
 pnpm test         # unit, database and storage tests (Vitest; needs TEST_DATABASE_URL, S3_ENDPOINT and ffmpeg)
 pnpm test:e2e     # flow tests (Playwright; starts the app and the worker)

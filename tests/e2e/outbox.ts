@@ -21,3 +21,4 @@ function linkFor(template: string, path: string, to: string): string | null {
 
 export const confirmLinkFor = (to: string) => linkFor("confirm_email", "confirm", to);
 export const parentLinkFor = (to: string) => linkFor("parent_consent", "parent", to);
+export const editLinkFor = (to: string) => linkFor("changes_requested", "edit", to);

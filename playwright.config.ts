@@ -6,8 +6,23 @@ const PORT = 3100;
 // Cloud sessions ship a pre-installed Chromium; CI installs its own.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
 
+/** The app and the worker share these, so emails from either land in the test outbox. */
+const SERVER_ENV = {
+  APP_URL: `http://localhost:${PORT}`,
+  EMAIL_PROVIDER: "console",
+  // Tests read confirm links from here instead of a real inbox.
+  EMAIL_OUTBOX_DIR: OUTBOX_DIR,
+  SUBMIT_RATE_LIMIT: "1000",
+  MEDIA_RATE_LIMIT: "1000",
+  // Staff sign the admin tests in with the development sign-in (localhost only).
+  ADMIN_DEV_LOGIN: "1",
+  AUTH_SECRET: process.env.AUTH_SECRET ?? "e2e-only-secret-not-for-production-use",
+  SAFEGUARDING_LEAD_EMAIL: "safeguarding.lead@springpod.com",
+};
+
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -35,14 +50,7 @@ export default defineConfig({
   webServer: [
     {
       command: `pnpm build && pnpm start -p ${PORT}`,
-      env: {
-        APP_URL: `http://localhost:${PORT}`,
-        EMAIL_PROVIDER: "console",
-        // Tests read confirm links from here instead of a real inbox.
-        EMAIL_OUTBOX_DIR: OUTBOX_DIR,
-        SUBMIT_RATE_LIMIT: "1000",
-        MEDIA_RATE_LIMIT: "1000",
-      },
+      env: SERVER_ENV,
       url: `http://localhost:${PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 240_000,
@@ -50,6 +58,7 @@ export default defineConfig({
     {
       // Checks, converts and transcribes uploads (fake transcripts outside production).
       command: "pnpm worker",
+      env: SERVER_ENV,
       wait: { stdout: /Media worker running/ },
       timeout: 60_000,
     },

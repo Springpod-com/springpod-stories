@@ -15,9 +15,10 @@ import {
 } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
-import { emailProvider, type EmailMessage } from "./email";
 import { currentMedia, purgeStoryMedia } from "./media";
-import { confirmEmail, parentConsentEmail } from "./email/templates";
+import { confirmEmail } from "./email/templates";
+import { sendLogged } from "./email/send";
+import { QUEUES, sendJob, type SendJob } from "./jobs";
 import { createToken, useToken } from "./tokens";
 
 /**
@@ -91,7 +92,7 @@ export type SubmitResult = { ok: true; storyId: string } | { ok: false; error: S
  * Submit (PRD 10.1): saves the final answers and consent, moves the story on, and emails the
  * confirm link. Consent and contact details are only ever stored here, never by autosave.
  */
-export async function submitStory(deviceHash: string, submission: Submission): Promise<SubmitResult> {
+export async function submitStory(deviceHash: string, submission: Submission, send: SendJob = sendJob): Promise<SubmitResult> {
   const existing = await findDraft(deviceHash);
   const turns = existing
     ? toTurns(await db.interviewTurn.findMany({ where: { storyId: existing.id }, orderBy: { createdAt: "asc" } }))
@@ -104,7 +105,7 @@ export async function submitStory(deviceHash: string, submission: Submission): P
   const minor = submission.age === "14 to 17";
   const channels = CHANNELS.map((c) => c.value).filter((c) => submission.channels[c]);
 
-  const { storyId, token, firstName, parent } = await db.$transaction(async (tx) => {
+  const { storyId, token, firstName } = await db.$transaction(async (tx) => {
     const submitter = await tx.submitter.upsert({ where: { email }, create: { email }, update: {} });
     const draft = await tx.story.findFirst({
       where: { deviceIdHash: deviceHash, status: "draft" },
@@ -142,27 +143,10 @@ export async function submitStory(deviceHash: string, submission: Submission): P
       status = nextStatus(status, "safeguarding_flag");
       await tx.story.update({ where: { id: story.id }, data: { status } });
       await writeAudit(tx, { storyId: story.id, actorType: "system", action: "safeguarding_review", payload: { status } });
-    } else {
-      // PLACEHOLDER until milestone 6: the AI pre-screen job runs here. For now the story passes straight on.
-      status = nextStatus(status, "prescreen_clear");
-      await tx.story.update({ where: { id: story.id }, data: { status } });
-      await writeAudit(tx, { storyId: story.id, actorType: "system", action: "prescreen_skipped", payload: { status } });
     }
 
     const raw = await createToken(tx, { purpose: "confirm_email", storyId: story.id, submitterId: submitter.id });
-    // The parent or carer is asked straight away (PRD 14), unless the story is held for safeguarding:
-    // then the team decides first (build plan M5.6).
-    const parent =
-      minor && status !== "safeguarding_review"
-        ? {
-            token: await createToken(tx, { purpose: "parent_decision", storyId: story.id }),
-            to: submission.parentEmail.trim().toLowerCase(),
-            headline: story.headline ?? "",
-            story: story.story ?? "",
-            pullQuote: story.pullQuote ?? "",
-          }
-        : null;
-    return { storyId: story.id, token: raw, firstName: story.firstName ?? "", parent };
+    return { storyId: story.id, token: raw, firstName: story.firstName ?? "" };
   });
 
   // A file left over from a different way of telling the story isn't kept.
@@ -170,22 +154,9 @@ export async function submitStory(deviceHash: string, submission: Submission): P
 
   // Sent after the transaction commits. Failures are logged; resend is part of milestone 7 (emails).
   await sendLogged(storyId, confirmEmail({ to: email, firstName, token }));
-  if (parent) {
-    const channelLabels = CHANNELS.filter((c) => channels.includes(c.value)).map((c) => c.label);
-    await sendLogged(storyId, parentConsentEmail({ ...parent, firstName, channels: channelLabels }));
-  }
+  // The pre-screen decides where the story goes next, and asks the parent or carer (build plan M6.2).
+  await send(QUEUES.prescreen, { storyId });
   return { ok: true, storyId };
-}
-
-/** Sends an email and records the template name (never the address) in the audit log. */
-async function sendLogged(storyId: string, message: EmailMessage) {
-  try {
-    await emailProvider().send(message);
-    await writeAudit(db, { storyId, actorType: "system", action: "email_sent", payload: { template: message.template } });
-  } catch (e) {
-    console.error(`Email ${message.template} failed`, e);
-    await writeAudit(db, { storyId, actorType: "system", action: "email_failed", payload: { template: message.template } });
-  }
 }
 
 export type ConfirmResult = { ok: true; firstName: string } | { ok: false; reason: "not_found" | "expired" };

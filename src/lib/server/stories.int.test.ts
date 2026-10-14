@@ -132,7 +132,7 @@ describe("submit and confirm (PRD 10, 14)", () => {
     expect(after.submitter?.emailConfirmedAt).not.toBeNull();
 
     const actions = (await db.auditEvent.findMany({ orderBy: { createdAt: "asc" } })).map((e) => e.action);
-    expect(actions).toEqual(["draft_created", "submitted", "prescreen_skipped", "email_sent", "email_confirmed"]);
+    expect(actions).toEqual(["draft_created", "submitted", "email_sent", "prescreen_done", "email_confirmed"]);
   });
 
   it("is safe to open the confirm link twice", async () => {

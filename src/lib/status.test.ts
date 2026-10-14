@@ -31,6 +31,7 @@ describe("story status transitions (PRD 10.1)", () => {
     expect(() => nextStatus("safeguarding_review", "approve")).toThrow(InvalidTransitionError);
     expect(nextStatus("safeguarding_review", "safeguarding_cleared", { parentPending: true })).toBe("awaiting_parent");
     expect(nextStatus("safeguarding_review", "safeguarding_cleared")).toBe("in_review");
+    expect(nextStatus("safeguarding_review", "safeguarding_cleared", { emailPending: true, parentPending: true })).toBe("awaiting_email");
   });
 
   it("sends changed stories back through the checks", () => {

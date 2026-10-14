@@ -10,13 +10,24 @@ export const QUEUES = {
   process: "media-process",
   /** Speech to text for one processed file. */
   transcribe: "media-transcribe",
+  /** The AI pre-screen of a submitted story (PRD 9.4). */
+  prescreen: "story-prescreen",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 export interface MediaJob {
   mediaId: string;
 }
-export type SendJob = (queue: QueueName, data: MediaJob) => Promise<void>;
+export interface StoryJob {
+  storyId: string;
+}
+/** What each queue's jobs carry. */
+export interface JobData {
+  "media-process": MediaJob;
+  "media-transcribe": MediaJob;
+  "story-prescreen": StoryJob;
+}
+export type SendJob = <Q extends QueueName>(queue: Q, data: JobData[Q]) => Promise<void>;
 
 const QUEUE_OPTIONS = { retryLimit: 3, retryDelay: 10, retryBackoff: true, expireInSeconds: 15 * 60 };
 
@@ -39,6 +50,15 @@ export function jobBoss(options: { worker?: boolean } = {}): Promise<PgBoss> {
   return globalForBoss.boss;
 }
 
+/**
+ * Queues a job for the worker. With JOBS_MODE=inline (the integration tests) the job runs straight
+ * away in this process instead, so a test sees the finished result.
+ */
 export const sendJob: SendJob = async (queue, data) => {
+  if (process.env.JOBS_MODE === "inline") {
+    const { runJob } = await import("./job-handlers");
+    await runJob(queue, data);
+    return;
+  }
   await (await jobBoss()).send(queue, data);
 };

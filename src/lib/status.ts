@@ -20,6 +20,8 @@ export type StoryEvent =
 export interface TransitionContext {
   /** True while a 14 to 17 year old's parent or carer has not yet decided. */
   parentPending?: boolean;
+  /** True while the submitter has not yet confirmed their email. */
+  emailPending?: boolean;
 }
 
 export class InvalidTransitionError extends Error {
@@ -80,7 +82,8 @@ const RULES: Partial<Record<StoryStatus, Partial<Record<StoryEvent, Rule>>>> = {
     resubmit: () => "submitted",
   },
   safeguarding_review: {
-    safeguarding_cleared: (ctx) => (ctx.parentPending ? "awaiting_parent" : "in_review"),
+    // Back to where the story would have been: waiting for the email, the parent, or the team.
+    safeguarding_cleared: (ctx) => (ctx.emailPending ? "awaiting_email" : ctx.parentPending ? "awaiting_parent" : "in_review"),
     reject: () => "rejected",
   },
 };

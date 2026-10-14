@@ -52,3 +52,23 @@ export function parentConsentEmail({
     ].join("\n"),
   };
 }
+
+/** To the designated safeguarding lead (PRD 9.4, 14): a link to the story in the admin, no story content. */
+export function safeguardingEmail({ to, storyId }: { to: string; storyId: string }): EmailMessage {
+  return {
+    template: "safeguarding_flag",
+    to,
+    subject: "[Copy needed G14] A story needs a safeguarding review",
+    text: ["[Copy needed G14] A story has been held for safeguarding review.", "", `Open it in the admin: ${appUrl(`/admin/stories/${storyId}`)}`].join("\n"),
+  };
+}
+
+/** To the submitter when the team asks for changes (PRD 14): the team's message and an edit link. */
+export function changesRequestedEmail({ to, firstName, message, token }: { to: string; firstName: string; message: string; token: string }): EmailMessage {
+  return {
+    template: "changes_requested",
+    to,
+    subject: "[Copy needed G14] A change to your story",
+    text: [`[Copy needed G14] Hi ${firstName},`, "", message, "", `Edit your story: ${appUrl(`/edit/${token}`)}`].join("\n"),
+  };
+}

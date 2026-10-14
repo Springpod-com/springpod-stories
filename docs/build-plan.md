@@ -993,3 +993,41 @@ Checks at sign-off: `pnpm lint` clean; `pnpm test` 126 tests pass (unit and inte
 New questions:
 
 25. **Parent link expiry.** The parent link works for 14 days. If nobody decides in time, the story stays private (`awaiting_parent`). Should the team be able to resend the parent email from the admin? (Default: yes, built with the admin in milestone 6.) **Answered: yes, 14 October 2026.**
+
+### Milestone 6: Admin
+
+Milestone 5 approved on 14 October 2026.
+
+What's built: staff sign-in to `/admin` (Google Workspace through Auth.js, with a development sign-in for local testing); the story queue with counts, filters and search; the story detail as in `design/screens/42-admin-queue-video-checks.png` (facts, flags, story, skills, quote card, interview, media player, transcript, automated checks and the team checklist); Approve, Request changes and Reject with the approval rules enforced on the server; the AI pre-screen as a background job, with a pattern check that always runs; the safeguarding lead email; clearing a safeguarding review; resending the parent email; manual verification; and the edit page for stories sent back for changes.
+
+Versions added: `next-auth` 5.0.0-beta.32 (the current Auth.js release for Next.js 16).
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M6.1 | Staff sign in with Google Workspace (`AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`), limited to `STAFF_EMAIL_DOMAIN` (default `springpod.com`) with a verified Google address, and to people on the staff list (`pnpm staff:add <email> <moderator|content> [name]`). Sessions are signed cookies lasting 8 hours. The proxy checks every `/admin` request and every admin page and action checks the staff list again, so removing someone takes effect at once | Build plan section 12. **The Google OAuth client is still to be set up by Springpod** |
+| M6.2 | Until then, a development sign-in by email can be turned on with `ADMIN_DEV_LOGIN=1`. It only works when `APP_URL` is localhost, so it can't be switched on in a deployed environment by mistake | Lets the admin be built and tested now |
+| M6.3 | Submitting a story now queues the pre-screen (`story-prescreen` job) instead of the milestone 2 placeholder. The story waits as "submitted" until it runs. If the email is confirmed meanwhile, the pre-screen moves it straight on | PRD 9.4: the pre-screen runs before the story enters the queue |
+| M6.4 | The pre-screen reads the story, quote, advice, organisation, current role, transcript and the person's interview answers (not the interviewer's questions). It uses the balanced model at low effort with schema-checked output. A pattern check for email addresses, UK phone numbers, postcodes and social handles runs every time, whatever the model says | `docs/ai-prompts.md` section 4; build plan C8 |
+| M6.5 | The organisation the person names in the flow always gets the prototype's partner approval flag ("Names ... Partner approval needed before use on their channels; check tone is fair."). Other findings become flags with placeholder wording (G12). If the model can't be used, a flag says the automated check didn't run, so nobody assumes it did | PRD 9.4 |
+| M6.6 | A re-run (after a resubmit) replaces the earlier automated flags. The team's own flags, resolved flags and open safeguarding flags stay | Old findings shouldn't linger after an edit, but a safeguarding concern is only cleared by a person |
+| M6.7 | A safeguarding concern holds the story and emails `SAFEGUARDING_LEAD_EMAIL` once, with only a link to the admin. Without a lead set, the admin shows a warning on every page (G13) | PRD 9.4, 14 |
+| M6.8 | The parent or carer email now goes from the pre-screen job once the story is cleared, and when the team clears a safeguarding review. "Resend parent email" sends a fresh link and the old one stops working | M5.6 and Q25, as agreed |
+| M6.9 | "To review" counts stories in review and in safeguarding review. "Total" counts every story that has been sent | PRD 11.1 |
+| M6.10 | Approve is disabled, with the reason shown, while parent consent is pending, a safeguarding review is open, or a team check is unticked for a story with media. The server applies the same rules. Each tick is saved with the staff member's name and the time | PRD 11.2, acceptance criterion 8 |
+| M6.11 | Staff names, never email addresses, go into checklist ticks, decisions and resolved flags. The queue and detail never select the submitter's or parent's email | PRD 9.3 |
+| M6.12 | Request changes needs a message; it emails the submitter an edit link (14 days). The edit page shows the message and lets them edit the headline, story and quote, then resubmit. The story goes through the pre-screen again, and back to review once cleared | PRD 11.2, Q16 default |
+| M6.13 | Reject needs a reason, which is recorded but not emailed. Media of a rejected story is marked for deletion after 30 days, for the retention job in milestone 7 | PRD 9.3 |
+| M6.14 | Clearing a safeguarding review returns the story to where it would have been: waiting for the email, for the parent, or in review | Status rules extended with `emailPending` |
+| M6.15 | The "approved" email to the submitter arrives with the other emails in milestone 7 | PRD 19 puts all section 14 emails in milestone 7 |
+| M6.16 | Staff playback and poster links last an hour; the public's last 15 minutes | Build plan section 12 |
+| M6.17 | In tests, background jobs can run inline (`JOBS_MODE=inline`) so a test sees the result straight away; the end-to-end tests use the real worker | Simple, realistic tests |
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` 148 tests pass (unit and integration, including the pre-screen with a fake model, every review action and the approval rules, the edit and resubmit flow, and that no email address reaches the queue or detail); `pnpm test:e2e` 59 Playwright tests pass at 360, 390 and 1440 pixels, including staff sign-in, Approve disabled until every video check is ticked (acceptance criterion 8), Approve disabled while parent consent is pending, request changes through to resubmit, and reject; `pnpm build` passes; `npx springpod-audit src --json` reports no drift.
+
+New questions:
+
+26. **Google sign-in setup.** Springpod needs to create a Google OAuth client (Workspace, internal) with the redirect `https://<admin host>/api/auth/callback/google`, and set `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` and `AUTH_SECRET`. Who should own this? (Default: whoever owns the infrastructure decision.)
+27. **Safeguarding lead.** Who is the designated safeguarding lead, and which address should `SAFEGUARDING_LEAD_EMAIL` use? (PRD 21, still open.)
+28. **Content role.** The `content` role exists but adds nothing until the content pack in milestone 7. Should moderators also be able to generate content packs? (Default: no, `content` only, as the PRD says.)

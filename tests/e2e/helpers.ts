@@ -72,7 +72,7 @@ export async function chooseMedia(page: Page, fixture: string, via: "capture" | 
 }
 
 /** Uses a file that passes the checks, waits for the transcript, and leaves the person on that screen. */
-export async function useGoodVideo(page: Page) {
+export async function chooseGoodVideo(page: Page) {
   await expect(heading(page)).toHaveText("Film your video");
   await chooseMedia(page, "good-video.webm");
   await expect(page.locator("[data-verdict=pass]")).toBeVisible({ timeout: 20_000 });

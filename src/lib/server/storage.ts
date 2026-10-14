@@ -73,7 +73,7 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
   await s3().send(new AbortMultipartUploadCommand({ Bucket: bucket(), Key: key, UploadId: uploadId }));
 }
 
-export function presignRead(key: string, downloadName?: string): Promise<string> {
+export function presignRead(key: string, downloadName?: string, expiresIn = READ_URL_TTL_S): Promise<string> {
   return getSignedUrl(
     s3(),
     new GetObjectCommand({
@@ -81,7 +81,7 @@ export function presignRead(key: string, downloadName?: string): Promise<string>
       Key: key,
       ...(downloadName ? { ResponseContentDisposition: `attachment; filename="${downloadName.replace(/"/g, "")}"` } : {}),
     }),
-    { expiresIn: READ_URL_TTL_S },
+    { expiresIn },
   );
 }
 

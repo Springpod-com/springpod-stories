@@ -9,6 +9,8 @@ process.env.EMAIL_PROVIDER = "console";
 process.env.EMAIL_OUTBOX_DIR = mkdtempSync(join(tmpdir(), "wes-outbox-"));
 process.env.APP_URL = "http://localhost:3000";
 process.env.S3_BUCKET = "wes-media-test";
+// Background jobs run straight away, so tests see the result (src/lib/server/jobs.ts).
+process.env.JOBS_MODE = "inline";
 
 const { db } = await import("@/lib/server/db");
 

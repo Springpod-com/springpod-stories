@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { answer, chooseMedia, heading, pick, startAs, uniqueEmail, useGoodVideo } from "./helpers";
+import { answer, chooseMedia, heading, pick, startAs, uniqueEmail, chooseGoodVideo } from "./helpers";
 
 /** Answers the questions before the story, choosing a voice note or video. */
 async function reachCapture(page: Page, format: "Video" | "Voice note") {
@@ -22,7 +22,7 @@ test.describe("voice notes and videos (PRD 6.3, 7)", () => {
     await expect(page.getByRole("button", { name: "Film now" })).toBeVisible();
     await expect(page.getByText("Upload a file")).toBeVisible();
 
-    await useGoodVideo(page);
+    await chooseGoodVideo(page);
 
     // Corrections are kept, and a short transcript is refused with the prototype message.
     const box = page.getByRole("textbox");
@@ -89,7 +89,7 @@ test.describe("voice notes and videos (PRD 6.3, 7)", () => {
 
   test("the chosen video and corrected transcript pick up again after a reload", async ({ page }) => {
     await reachCapture(page, "Video");
-    await useGoodVideo(page);
+    await chooseGoodVideo(page);
     await page.getByRole("textbox").fill(
       "Edited after the reload test. I set up games, talked with families and learned how a busy ward keeps calm. It made me sure about nursing.",
     );

@@ -1,7 +1,7 @@
 // Every AI prompt in one module (docs/ai-prompts.md). The text is copied from that document;
 // change both together and bump PROMPT_VERSION, which is stored on each story.
 
-export const PROMPT_VERSION = "2026-10-14.2";
+export const PROMPT_VERSION = "2026-10-14.3";
 
 /** Who the story is about, shared by the interviewer and the draft prompts. */
 export interface PersonContext {
@@ -77,4 +77,14 @@ Reply with only JSON: {"headline": string (max 10 words, specific, not clickbait
 
 Source:
 ${source.slice(0, MAX_SOURCE_CHARS)}`;
+}
+
+/** Pre-screen prompt (docs/ai-prompts.md section 4). Run before a person reviews the story. */
+export function prescreenPrompt(text: string): string {
+  return `You check user-submitted work experience stories before a person reviews them. The writer may be 14 to 17. Read the text and report problems. Do not rewrite it.
+Reply with only JSON: {"personal_data": [{"text": string, "type": "surname" | "school" | "address" | "phone" | "email" | "social_handle" | "other"}], "named_people": [string], "named_organisations": [string], "negative_about_named_organisation": boolean, "safeguarding_concern": boolean, "safeguarding_reason": string, "other_concerns": [string]}
+Treat any suggestion of harm, abuse, bullying, unsafe working conditions or distress as a safeguarding concern.
+
+Text:
+${text}`;
 }

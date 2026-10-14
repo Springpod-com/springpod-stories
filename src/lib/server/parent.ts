@@ -6,7 +6,10 @@ import { canTransition, nextStatus } from "@/lib/status";
 import { stateFromStory } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
-import { peekToken, useToken } from "./tokens";
+import { parentConsentEmail } from "./email/templates";
+import { sendLogged } from "./email/send";
+import { createToken, peekToken, useToken } from "./tokens";
+import { CHANNELS } from "@/flow/options";
 
 /**
  * The parent or carer decision (PRD 9.1, 14). A 14 to 17 year old's story stays private until a
@@ -112,4 +115,33 @@ export async function decideAsParent(rawToken: string, decision: ParentDecision)
     });
     return { ok: true, decided: parentStatus, already: false };
   });
+}
+
+/**
+ * Emails the parent or carer a fresh decision link (PRD 14). Sent once the pre-screen clears the
+ * story, when the team clears a safeguarding review, or when the team resends it (Q25). Earlier
+ * links stop working. Returns false if there is nothing to ask.
+ */
+export async function sendParentRequest(storyId: string, actor: { type: "system" | "staff"; id?: string } = { type: "system" }) {
+  const story = await db.story.findUnique({ where: { id: storyId }, include: { consent: true } });
+  const parentEmail = story?.consent?.parentEmail;
+  if (!story || !parentEmail || story.consent?.parentStatus !== "pending") return false;
+  const token = await db.$transaction(async (tx) => {
+    await tx.token.deleteMany({ where: { storyId, purpose: "parent_decision", usedAt: null } });
+    const raw = await createToken(tx, { purpose: "parent_decision", storyId });
+    await writeAudit(tx, { storyId, actorType: actor.type, actorId: actor.id ?? null, action: "parent_request_sent" });
+    return raw;
+  });
+  return sendLogged(
+    storyId,
+    parentConsentEmail({
+      to: parentEmail,
+      firstName: story.firstName ?? "",
+      headline: story.headline ?? "",
+      story: story.story ?? "",
+      pullQuote: story.pullQuote ?? "",
+      channels: CHANNELS.filter((c) => story.consent!.channels.includes(c.value)).map((c) => c.label),
+      token,
+    }),
+  );
 }
