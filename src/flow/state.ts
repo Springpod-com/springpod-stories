@@ -33,6 +33,9 @@ export interface FlowState {
   mode: StoryMode | "";
   format: StoryFormat | "";
   written: string;
+  /** The voice note or video chosen with "Use this video". Uploaded and processed on the server. */
+  mediaId: string;
+  /** The transcript as the person has corrected it. */
   transcript: string;
   /** The AI interview so far. Stored on the server turn by turn, not by autosave. */
   turns: Turn[];
@@ -61,6 +64,7 @@ export const initialState: FlowState = {
   mode: "",
   format: "",
   written: "",
+  mediaId: "",
   transcript: "",
   turns: [],
   interviewEnded: false,
@@ -101,3 +105,5 @@ export const interviewAnswers = (s: FlowState) => s.turns.filter((t) => t.role =
 /** Minimum written words (PRD 6.2) and interview answers (PRD 6.1) before the story can be written up. */
 export const MIN_WRITTEN_WORDS = 40;
 export const MIN_INTERVIEW_ANSWERS = 3;
+/** Minimum transcript words before a voice note or video can be written up (prototype). */
+export const MIN_TRANSCRIPT_WORDS = 20;

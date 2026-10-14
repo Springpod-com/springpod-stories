@@ -5,6 +5,7 @@ import { nextStatus } from "@/lib/status";
 import { PROMPT_VERSION } from "@/lib/ai/prompts";
 import {
   ageBand,
+  mediaSummary,
   storyFields,
   submissionError,
   toTurns,
@@ -15,6 +16,7 @@ import {
 import { writeAudit } from "./audit";
 import { db } from "./db";
 import { emailProvider } from "./email";
+import { currentMedia, purgeStoryMedia } from "./media";
 import { confirmEmail } from "./email/templates";
 import { createToken, useToken } from "./tokens";
 
@@ -30,6 +32,9 @@ function findDraft(deviceHash: string) {
   return db.story.findFirst({ where: { deviceIdHash: deviceHash, status: "draft" }, orderBy: { updatedAt: "desc" } });
 }
 
+const draftIds = async (deviceHash: string) =>
+  (await db.story.findMany({ where: { deviceIdHash: deviceHash, status: "draft" }, select: { id: true } })).map((s) => s.id);
+
 export async function getDraft(deviceHash: string): Promise<Story | null> {
   return findDraft(deviceHash);
 }
@@ -42,6 +47,7 @@ export type SaveResult = { saved: true; storyId: string } | { saved: false; reas
  */
 export async function saveDraft(deviceHash: string, answers: DraftAnswers): Promise<SaveResult> {
   if (answers.age === "Under 14") {
+    await purgeStoryMedia(await draftIds(deviceHash));
     await db.$transaction(async (tx) => {
       await tx.story.deleteMany({ where: { deviceIdHash: deviceHash, status: "draft" } });
       await tx.blockedCount.upsert({
@@ -69,6 +75,7 @@ export async function saveDraft(deviceHash: string, answers: DraftAnswers): Prom
 
 /** "Start again": removes this device's draft. */
 export async function deleteDraft(deviceHash: string): Promise<void> {
+  await purgeStoryMedia(await draftIds(deviceHash));
   await db.story.deleteMany({ where: { deviceIdHash: deviceHash, status: "draft" } });
 }
 
@@ -83,7 +90,8 @@ export async function submitStory(deviceHash: string, submission: Submission): P
   const turns = existing
     ? toTurns(await db.interviewTurn.findMany({ where: { storyId: existing.id }, orderBy: { createdAt: "asc" } }))
     : [];
-  const error = submissionError(submission, { turns, ended: existing?.interviewEndedBy != null });
+  const media = existing ? await currentMedia(existing.id) : null;
+  const error = submissionError(submission, { turns, ended: existing?.interviewEndedBy != null }, mediaSummary(media));
   if (error) return { ok: false, error };
 
   const email = submission.email.trim().toLowerCase();
@@ -138,6 +146,9 @@ export async function submitStory(deviceHash: string, submission: Submission): P
     const raw = await createToken(tx, { purpose: "confirm_email", storyId: story.id, submitterId: submitter.id });
     return { storyId: story.id, token: raw, firstName: story.firstName ?? "" };
   });
+
+  // A file left over from a different way of telling the story isn't kept.
+  if (media && submission.format !== "voice" && submission.format !== "video") await purgeStoryMedia([storyId]);
 
   // Sent after the transaction commits. Failures are logged; resend is part of milestone 7 (emails).
   try {

@@ -3,15 +3,16 @@ import { ensureDeviceHash, currentDeviceHash } from "@/lib/server/device";
 import { jsonError, sameOrigin } from "@/lib/server/http";
 import { clientIp, rateLimit } from "@/lib/server/rate-limit";
 import { loadTurns } from "@/lib/server/interview";
+import { currentMedia } from "@/lib/server/media";
 import { deleteDraft, getDraft, saveDraft } from "@/lib/server/stories";
-import { draftAnswersSchema, stateFromStory } from "@/lib/story-data";
+import { draftAnswersSchema, mediaSummary, stateFromStory } from "@/lib/story-data";
 
 /** The saved draft for this device, so the person can carry on (PRD 4 rule 5). */
 export async function GET() {
   const device = await currentDeviceHash();
   const story = device ? await getDraft(device) : null;
   if (!story) return new NextResponse(null, { status: 204 });
-  return NextResponse.json({ state: stateFromStory(story, await loadTurns(story.id)), savedAt: story.updatedAt });
+  return NextResponse.json({ state: stateFromStory(story, await loadTurns(story.id), mediaSummary(await currentMedia(story.id))), savedAt: story.updatedAt });
 }
 
 /** Autosave. Creates the draft once a valid age is given. */

@@ -226,7 +226,7 @@ export const QUESTIONS: Question[] = [
     get: (s) => s.mode,
     set: (s, v) => {
       const mode = v as FlowState["mode"];
-      if (mode === "interview") return { ...s, mode, format: "interview" };
+      if (mode === "interview") return { ...s, mode, format: "interview", mediaId: "", transcript: "" };
       return { ...s, mode, format: s.format === "interview" ? "" : s.format };
     },
   },
@@ -244,7 +244,7 @@ export const QUESTIONS: Question[] = [
     get: (s) => s.format,
     set: (s, v) => {
       const format = v as StoryFormat;
-      return format === s.format ? s : { ...s, format, transcript: "", draft: null };
+      return format === s.format ? s : { ...s, format, mediaId: "", transcript: "", draft: null };
     },
   },
   { id: "guide", kind: "guide", chapter: "story", when: usesMedia },

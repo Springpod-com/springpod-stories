@@ -1,7 +1,7 @@
 // Pure functions over the question config. No React, no browser APIs.
 
 import { CHAPTERS, type ChapterId, type Question } from "./questions";
-import { MIN_WRITTEN_WORDS, wordCount, type FlowState } from "./state";
+import { MIN_TRANSCRIPT_WORDS, MIN_WRITTEN_WORDS, wordCount, type FlowState } from "./state";
 
 export const isVisible = (q: Question, s: FlowState) => !q.when || q.when(s);
 
@@ -49,6 +49,8 @@ export function validationError(q: Question, s: FlowState): string | null {
       return "stop";
     case "story":
       return storyError(s);
+    case "transcript":
+      return wordCount(s.transcript) >= MIN_TRANSCRIPT_WORDS ? null : "The transcript looks too short. Add anything that's missing.";
     case "draft":
       return s.draft ? null : "draft";
     default:
@@ -65,7 +67,8 @@ function storyError(s: FlowState): string | null {
   // The interview is complete once it has ended: by the interviewer, or by "I'm done, write it up",
   // which the server allows only after the minimum number of answers (PRD 6.1).
   if (s.format === "interview") return s.interviewEnded ? null : "interview";
-  // Voice notes and videos are checked on their own screens (milestone 4).
+  // A voice note or video counts once the person has chosen it with "Use this video" (PRD 7).
+  if (s.format === "voice" || s.format === "video") return s.mediaId ? null : "media";
   return null;
 }
 

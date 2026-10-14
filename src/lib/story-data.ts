@@ -6,7 +6,8 @@ import { validationError, visibleQuestions } from "@/flow/engine";
 import { AGES, type AgeOption } from "@/flow/options";
 import { QUESTIONS } from "@/flow/questions";
 import { initialState, type FlowState, type Turn } from "@/flow/state";
-import type { AgeBand, InterviewTurn, Prisma, Story } from "@/generated/prisma/client";
+import type { AgeBand, InterviewTurn, Media, Prisma, Story } from "@/generated/prisma/client";
+import { verdict, type Check } from "@/lib/media/checks";
 
 const text = (max: number) => z.string().max(max);
 
@@ -116,8 +117,25 @@ export function storyFields(a: DraftAnswers): Prisma.StoryCreateInput {
 export const toTurns = (rows: Pick<InterviewTurn, "role" | "content" | "quickReply">[]): Turn[] =>
   rows.map((r) => ({ role: r.role, content: r.content, ...(r.quickReply ? { quickReply: true } : {}) }));
 
+/** What the flow needs to know about the draft's current file. */
+export interface MediaSummary {
+  mediaId: string;
+  transcript: string;
+}
+
+/**
+ * The current file counts as chosen once it is fully uploaded and hasn't failed the server
+ * checks (PRD 7.2: the server wins). Its transcript is the person's edit, or the raw text.
+ */
+export function mediaSummary(media: Media | null): MediaSummary {
+  if (!media || !["uploaded", "processing", "ready"].includes(media.status)) return { mediaId: "", transcript: "" };
+  const checks = (media.serverChecks as { checks?: Check[] } | null)?.checks;
+  if (checks && verdict(checks) === "fail") return { mediaId: "", transcript: "" };
+  return { mediaId: media.id, transcript: media.status === "ready" ? (media.transcriptEdited ?? media.transcriptRaw ?? "") : "" };
+}
+
 /** Rebuilds the flow state from a saved draft so the person can carry on. */
-export function stateFromStory(story: Story, turns: Turn[] = []): FlowState {
+export function stateFromStory(story: Story, turns: Turn[] = [], media: MediaSummary = { mediaId: "", transcript: "" }): FlowState {
   const hasDraft = story.headline !== null || story.story !== null || story.pullQuote !== null;
   return {
     ...initialState,
@@ -134,6 +152,8 @@ export function stateFromStory(story: Story, turns: Turn[] = []): FlowState {
     mode: story.mode ?? "",
     format: story.format ?? "",
     written: story.writtenText ?? "",
+    mediaId: media.mediaId,
+    transcript: media.transcript,
     turns,
     interviewEnded: story.interviewEndedBy != null,
     draft: hasDraft
@@ -156,6 +176,7 @@ export function stateFromStory(story: Story, turns: Turn[] = []): FlowState {
 const SERVER_MESSAGES: Record<string, string> = {
   draft: "Your story hasn't been written up yet",
   interview: "The interview needs a few more answers",
+  media: "Add your voice note or video",
 };
 
 export interface SubmissionError {
@@ -170,11 +191,12 @@ export interface SubmissionError {
 export function submissionError(
   s: Submission,
   interview: { turns: Turn[]; ended: boolean } = { turns: [], ended: false },
+  media: MediaSummary = { mediaId: "", transcript: "" },
 ): SubmissionError | null {
-  const state: FlowState = { ...initialState, ...s, transcript: "", turns: interview.turns, interviewEnded: interview.ended };
+  const state: FlowState = { ...initialState, ...s, ...media, turns: interview.turns, interviewEnded: interview.ended };
   if (state.age === "Under 14") return { questionId: "age", message: "Stories are open to people aged 14 and over" };
   for (const q of visibleQuestions(QUESTIONS, state)) {
-    if (["intro", "stop", "done", "guide", "transcript"].includes(q.kind)) continue;
+    if (["intro", "stop", "done", "guide"].includes(q.kind)) continue;
     const message = validationError(q, state);
     if (message) return { questionId: q.id, message: SERVER_MESSAGES[message] ?? message };
   }

@@ -6,8 +6,8 @@ Screens, states and messages the prototype doesn't cover. Per `CLAUDE.md`, the b
 |---|---|---|---|
 | G1 | Email confirmation landing (`/confirm/[token]`) | Success, expired link, link that doesn't work. The build shows the headings "Email confirmed", "This link has expired" and "This link doesn't work" with a marked placeholder for the next steps | 2 |
 | G2 | Resume a saved draft | Message when someone returns on the same device, and the label for the "Start again" link (the build uses "Start again" for now) | 2 |
-| G3 | Transcript screen while processing | Upload progress and "transcribing" waiting state; failure state if transcription fails | 4 |
-| G4 | Upload failure | Connection lost and resuming; upload failed after retries | 4 |
+| G3 | Transcript screen while processing | Upload progress, the transcribing wait, a file the worker couldn't open, and transcription failing. Placeholders: "Sending your video. Keep this page open.", "Turning your video into text…", "We couldn't open that file. Film again, or upload a different file.", "We couldn't turn your video into text. Type what you said below." ("Checking your video…" is from the prototype) | 4 |
+| G4 | Upload failure | Offline, upload failed after retries, and a reload part way through sending. Placeholders: "You're offline. We'll carry on sending when you're back online.", "The upload didn't finish. Check your connection and try again." with a "Try again" button, "Your video didn't finish sending. Choose it again.", and on the capture screen "We couldn't start sending your file. Check your connection and try again." | 4 |
 | G5 | Interview errors | When the interviewer can't be reached at all. Placeholder: "We couldn't reach the interviewer. Try sending again." (When the AI fails, the fixed questions take over silently: no message) | 3 |
 | G6 | Draft generation failure | Message if the draft can't be written and the fallback is used | 5 |
 | G7 | Parent or carer decision page (`/parent/[token]`) | Intro, story preview framing, three buttons (Approve, Approve without name, Decline), confirmation for each, expired link | 5 |

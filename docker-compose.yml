@@ -1,4 +1,5 @@
-# Local Postgres for development. `docker compose up -d`, then `pnpm db:migrate`.
+# Local Postgres and S3 stand-in for development.
+# `docker compose up -d`, then `pnpm db:migrate` and `pnpm storage:dev`.
 services:
   postgres:
     image: postgres:16
@@ -10,6 +11,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+  s3:
+    # moto: an in-memory S3 for development and tests. Files are lost when it stops.
+    image: motoserver/moto:5.1.0
+    ports:
+      - "4566:5000"
 
 volumes:
   postgres-data:

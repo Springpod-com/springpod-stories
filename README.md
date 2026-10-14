@@ -8,13 +8,15 @@ This repo starts as the build pack: everything Claude Code needs to build the pr
 
 ```bash
 cp .env.example .env
-docker compose up -d   # local Postgres (or point DATABASE_URL at your own)
+docker compose up -d   # local Postgres and S3 stand-in (or point DATABASE_URL and S3_* at your own)
 pnpm install
 pnpm db:migrate        # create the tables
+pnpm storage:dev       # create the local media bucket
 pnpm dev          # http://localhost:3000
+pnpm worker       # media worker: checks, converts and transcribes uploads (needs ffmpeg)
 pnpm lint         # ESLint, TypeScript and the em dash check
-pnpm test         # unit and database tests (Vitest; needs TEST_DATABASE_URL)
-pnpm test:e2e     # flow tests (Playwright)
+pnpm test         # unit, database and storage tests (Vitest; needs TEST_DATABASE_URL, S3_ENDPOINT and ffmpeg)
+pnpm test:e2e     # flow tests (Playwright; starts the app and the worker)
 pnpm audit:ds     # design system drift audit
 ```
 

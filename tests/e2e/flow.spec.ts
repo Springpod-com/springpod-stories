@@ -1,69 +1,6 @@
-import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { uniqueEmail, expectCardNotClipped, interview, writeStory, heading, pick, answer, startAs, useGoodVideo } from "./helpers";
 import { confirmLinkFor } from "./outbox";
-
-/** A unique address per test run, so parallel tests don't read each other's emails. */
-const uniqueEmail = (name: string, info: TestInfo) =>
-  `${name}.${info.project.name}.${info.workerIndex}.${Date.now()}@example.com`;
-
-/** Everything in the quote card sits inside its edges (PRD 5.4: never clip, the card grows). */
-async function expectCardNotClipped(card: Locator) {
-  const spill = await card.evaluate((el) => {
-    const box = el.getBoundingClientRect();
-    return Math.max(
-      ...[...el.querySelectorAll("*")].flatMap((child) => {
-        const r = child.getBoundingClientRect();
-        return [r.bottom - box.bottom, r.right - box.right, box.left - r.left];
-      }),
-    );
-  });
-  expect(spill).toBeLessThanOrEqual(0);
-}
-
-const STORY =
-  "On my first day I was honestly really nervous, but the team gave me a real task straight away. " +
-  "By Wednesday I was presenting part of a report in their morning meeting, and someone actually used what I made. " +
-  "The hardest thing was asking questions. My advice is to say yes to things.";
-
-/** Answers the interview using the fixed questions (no API key in tests), then asks for the write-up. */
-async function interview(page: Page) {
-  await expect(heading(page)).toHaveText("Your interview");
-  for (const answer of ["I helped run the reception desk.", "A patient thanked me by name.", "Talking to strangers was hard."]) {
-    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
-    await page.getByRole("textbox", { name: "Your answer" }).fill(answer);
-    await page.getByRole("button", { name: "Send" }).click();
-    await expect(page.getByRole("log").getByText(answer)).toBeVisible();
-  }
-  await page.getByRole("button", { name: "I'm done, write it up" }).click();
-}
-
-async function writeStory(page: Page) {
-  await expect(heading(page)).toHaveText("Tell us what happened");
-  await page.getByRole("textbox").fill(STORY);
-  await page.getByRole("button", { name: "Write up my story" }).click();
-}
-
-const heading = (page: Page) => page.getByRole("heading", { level: 1 });
-
-async function pick(page: Page, name: string | RegExp) {
-  await page.getByRole("radio", { name }).click();
-}
-
-async function answer(page: Page, value: string, button: "Continue" | "Skip" = "Continue") {
-  await page.getByRole("textbox").fill(value);
-  await page.getByRole("button", { name: button }).click();
-}
-
-async function startAs(page: Page, who: string, age: string, name = "Priya") {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Start my story" }).click();
-  await expect(heading(page)).toHaveText("Which best describes you?");
-  await pick(page, new RegExp(`^${who}`));
-  await expect(heading(page)).toHaveText("How old are you?");
-  await pick(page, age);
-  if (age === "Under 14") return;
-  await expect(heading(page)).toHaveText("What's your first name?");
-  await answer(page, name);
-}
 
 test.describe("public flow", () => {
   test("start screen shows the example stories and the start button", async ({ page }) => {
@@ -265,9 +202,7 @@ test.describe("public flow", () => {
     await pick(page, /^Video/);
     await expect(heading(page)).toHaveText("How to film a great video");
     await page.getByRole("button", { name: "I'm ready to film" }).click();
-    await expect(heading(page)).toHaveText("Film your video");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(heading(page)).toHaveText("Check your transcript");
+    await useGoodVideo(page);
     await page.getByRole("button", { name: "Write up my story" }).click();
     await page.getByRole("button", { name: "Looks good" }).click();
     await pick(page, "First initial (A.)");

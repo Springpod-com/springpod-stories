@@ -684,18 +684,17 @@ All mutating routes check origin, validate input with `zod` and are rate limited
 
 ### In the browser
 
-1. Person picks a file. `browser-analyse.ts` reads metadata, frames and audio; `checks.ts` applies the PRD 7.1 thresholds. Undecodable files give warnings, never fails.
-2. As soon as type, size and length checks are not failing, the multipart upload starts (`media.status = uploading`), so it runs while the remaining checks resolve and while the person reads them. If a later check fails, the upload is aborted and the record discarded.
-3. "Use this video" stores the browser check results. "Film again" or "Upload a different file" marks the old media `current = false` and queues its deletion.
-4. The transcript screen polls `GET /api/media/[id]/status` (every 2 seconds, backing off) until the transcript is ready, showing upload then transcription progress.
+1. Person picks a file (Film now opens the camera or recorder through a file input with `capture`; Upload a file uses the design system dropzone). `src/lib/media/analyse.ts` reads metadata, frames and audio; `src/lib/media/checks.ts` applies the PRD 7.1 thresholds. Undecodable files give warnings, never fails.
+2. As soon as the file type and size pass, the multipart upload starts (`media.status = uploading`), so it runs while the other checks resolve and while the person reads them. If a later check fails, the upload is cancelled and the record removed.
+3. "Use this video" moves on with the uploaded file. Choosing another file ("Film again", "Upload a different file") replaces the current one: the old record is marked `current = false`, `deleted`, and its files are deleted straight away.
+4. The transcript screen shows upload progress, then polls `GET /api/media/[id]` every 2 seconds until the file is ready, then shows the transcript to correct. Corrections save as people type.
 
 ### Worker jobs (pg-boss queues)
 
 | Job | Trigger | Steps | Notes |
 |---|---|---|---|
-| `media-probe` | Upload complete | ffprobe (container, codecs, duration, dimensions, rotation, audio track); EBU R128 loudness, clipping and silence ratio; extract a 16 kHz mono audio file; queue `media-transcribe` and `media-normalise` in parallel | High priority. Results saved to `serverChecks` straight away |
-| `media-transcribe` | After probe | Send extracted audio to the transcription adapter; save raw transcript, segments and confidence | High priority: the person is waiting on the transcript screen |
-| `media-normalise` | After probe | Frame brightness and blur from sampled frames; normalise to H.264/AAC MP4 or AAC M4A; poster frame; waveform JSON; upload outputs | Normal priority. Acceptance criterion 7: all done within 2 minutes for a 90-second video |
+| `media-process` | Upload complete | ffprobe (container, codecs, duration, displayed size after rotation, audio track); the same audio stats as the browser (loudness, peak, clipping, silence) from decoded audio; brightness of frames at 25% and 60%; EBU R128 loudness and true peak; blur score; the shared checks. If they pass: convert to H.264/AAC MP4 or AAC M4A (trimmed to the limit), poster frame, waveform JSON, 16 kHz mono WAV for speech to text; then queue `media-transcribe` | A file that fails the server checks isn't converted or transcribed. Built (M4.5) |
+| `media-transcribe` | After `media-process` | Send the WAV to the transcription adapter; save raw transcript, timed segments and confidence; mark the file `ready` | Built (M4.6) |
 | `story-prescreen` | Submit, resubmit | AI pre-screen on story, transcript and interview turns, plus the regex backstop; write `Flag` rows; route to `safeguarding_review` if needed | |
 | `safeguarding-notify` | Safeguarding flag | Email the safeguarding lead with an admin link and no story content | |
 | `springpod-match` | Email confirmed | Call the matching adapter; set `trustLabel` | Adapter is "none" until the API exists |
@@ -703,7 +702,7 @@ All mutating routes check origin, validate input with `zod` and are rate limited
 | `email-send` | Any email | Render template, send through the adapter, audit the template name (never the address) | Retries with backoff |
 | `retention-sweep` | Daily cron | Delete media and derived files past `deleteAfter`; mark assets withdrawn; delete expired tokens; delete abandoned drafts (Q12) | Acceptance criterion 12 |
 
-Failed jobs retry three times with backoff, then mark the media `failed` and raise a `system` flag so the team sees it. A 250 MB upload never touches the app server.
+Failed jobs retry three times with backoff. A failed `media-process` then marks the media `failed` and the person is asked for another file; a failed `media-transcribe` marks it `ready` with an empty transcript so the person can type what they said (M4.8). A 250 MB upload never touches the app server.
 
 ---
 
@@ -930,3 +929,37 @@ Checks at sign-off: `pnpm lint` clean; `pnpm test` 68 tests pass (unit and Postg
 New questions:
 
 22. **API key for the red team run.** To sign off acceptance criterion 9, someone with an Anthropic key (or Bedrock, if chosen) needs to run `pnpm test:ai`. Can you add a key to the environment, or run it yourselves? (Default: you run it before launch.)
+
+### Milestone 4: Media
+
+What's built: the capture screen (Film now, Upload a file, See all tips, Change how I tell it); the instant browser checks from PRD 7.1 with the prototype's verdicts and fixes; uploads straight to a private bucket in 10 MB parts with retries; the media worker (server checks, conversion, poster frame, waveform, transcription) on pg-boss; and the transcript screen, which shows upload progress, waits for the checks and transcript, then lets the person correct it. Submitting a voice note or video now needs a usable file and a transcript of at least 20 words, checked again on the server.
+
+Versions added: `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` and `@aws-sdk/client-transcribe` 3.1151.0, `pg-boss` 12.38.0, `tsx` (dev). ffmpeg 6 must be on the worker's PATH.
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M4.1 | **Infrastructure is still to be confirmed with the CTO**, so storage and transcription are provider-neutral: any S3-compatible bucket (`S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`) and a `Transcriber` interface with `fake` and `aws` adapters. Locally and in CI, moto stands in for S3 | Nothing is tied to a provider until the decision is made. The `aws` adapter (Amazon Transcribe, en-GB, eu-west-2) is ready if AWS London is confirmed; its output parser is unit-tested but it has not been run against AWS |
+| M4.2 | A small uploader of our own (fetch and XMLHttpRequest, three parts at a time, five tries per part with backoff, waits while offline, fresh signed link on a 403) instead of Uppy | About 150 lines against a whole library; the server already presigns each part, and the design system's `FileUpload` and `FileUploadItem` give the UI |
+| M4.3 | File names are never stored. The record keeps only `video.mov` or `voice-note.m4a` | People name files after themselves ("Sam Smith story.mov"); we don't collect surnames |
+| M4.4 | The server rejects an upload whose type or size fails the quick checks, and after completing checks the stored size matches what the browser declared | So the size check can't be bypassed |
+| M4.5 | The worker uses the same check rules and the same audio and brightness maths as the browser (`src/lib/media/measure.ts`). Its results are stored as `serverChecks = { checks, metrics }`; metrics (codecs, rotation, LUFS, true peak, blur, trim) are for the admin in milestone 5. Blur is recorded but doesn't fail a file (PRD 7.1 sets no threshold) | PRD 7.2: server wins where they differ, so they should differ only when the browser couldn't read the file |
+| M4.6 | Two jobs instead of the three planned: `media-process` and `media-transcribe` | Probe and convert share one download of the file, and the transcript can't start before the audio is extracted anyway |
+| M4.7 | Videos between 90 and 120 seconds (voice notes between 3:00 and 3:15) are trimmed to the limit when converted, as the length check promises ("We'll use the first 1:30") | Prototype copy |
+| M4.8 | If transcription keeps failing, the person can type what they said instead (copy gap G3) | They shouldn't be stuck because a provider is down |
+| M4.9 | When the server checks fail a file the browser passed (or couldn't read), the transcript screen shows the server's checks with "Film again" | PRD 7.2 |
+| M4.10 | On resume, a fully uploaded file that hasn't failed the server checks counts as chosen, and the corrected transcript comes back | Resume works the same on every step |
+| M4.11 | "Start again", the under-14 path, and sending a story told another way all delete stored media | Media is personal data; nothing is kept that isn't needed |
+| M4.12 | Signed playback links last 15 minutes; upload part links an hour. The bucket is private | `CLAUDE.md`: media is private and served through signed URLs |
+| M4.13 | The worker runs as its own process (`pnpm worker`, tsx under the `react-server` condition so the app's server-only modules load) | PRD: two containers, app and worker |
+| M4.14 | Test media (`tests/fixtures/media`) are WebM and Ogg, generated by `scripts/make-media-fixtures.sh` | Playwright's Chromium doesn't play H.264 or AAC |
+
+Timing (acceptance criterion 7): a 90-second 1080 x 1920 video at 8 Mb/s (91 MB) took 43 seconds through `media-process` on 4 cores, with the fake transcriber. Real transcription adds the provider's time; Amazon Transcribe is typically well under a minute for 90 seconds of audio, but that needs measuring once the provider is confirmed.
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` passes (unit and integration, including uploads against moto and the worker on real media files with ffmpeg); `pnpm test:e2e` passes, including filming, failing and replacing a file, voice notes, the transcript and resuming after a reload; `pnpm build` passes; `npx springpod-audit src --json` reports no drift.
+
+New questions:
+
+23. **A file that's uploaded but not chosen.** The upload starts before the person presses "Use this video". If they leave at that point and come back, the uploaded file counts as chosen. (Default: keep; they see it on the transcript screen and can film again.)
+24. **Media from abandoned drafts.** Files from drafts that are never sent stay until the draft is deleted. This joins Q12 (abandoned drafts), with deletion by the retention sweep in milestone 7. (Default: 30 days, with the drafts.)

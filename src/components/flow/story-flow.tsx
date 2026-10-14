@@ -10,7 +10,9 @@ import { GuideScreen } from "@/components/media/guide-screen";
 import { QuoteCard } from "@/components/quote-card/quote-card";
 import { StartScreen } from "@/components/start/start-screen";
 import { InterviewScreen } from "@/components/story/interview-screen";
-import { DraftPlaceholder, MediaPlaceholder, TranscriptPlaceholder } from "@/components/story/placeholder-screens";
+import { CaptureScreen } from "@/components/media/capture-screen";
+import { TranscriptScreen } from "@/components/media/transcript-screen";
+import { DraftPlaceholder } from "@/components/story/placeholder-screens";
 import { WriteScreen } from "@/components/story/write-screen";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
 import {
@@ -24,6 +26,7 @@ import {
 } from "@/flow/engine";
 import { QUESTIONS, type Question } from "@/flow/questions";
 import { initialState, resetForAnotherStory, type FlowState } from "@/flow/state";
+import { clearSelection } from "@/lib/media/media-store";
 import { ChapterProgress } from "./chapter-progress";
 import { clearDraft, loadDraft, submitStory, useAutosave } from "./persistence";
 import { MultiChoiceScreen, SingleChoiceScreen, StopScreen, TextScreen } from "./question-screens";
@@ -146,6 +149,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
 
   const startAgain = useCallback(() => {
     void clearDraft();
+    clearSelection();
     setState(initialState);
     stateRef.current = initialState;
     setResumed(false);
@@ -225,11 +229,22 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
         ) : state.format === "write" ? (
           <WriteScreen {...common} onChangeFormat={() => go("mode")} />
         ) : (
-          <MediaPlaceholder {...common} onChangeFormat={() => go("mode")} />
+          <CaptureScreen {...common} onChangeFormat={() => go("mode")} onTips={() => go("guide")} />
         );
       break;
     case "transcript":
-      screen = <TranscriptPlaceholder {...common} onChangeFormat={() => go("mode")} />;
+      screen = (
+        <TranscriptScreen
+          {...common}
+          onFilmAgain={() => {
+            clearSelection();
+            const next = { ...stateRef.current, mediaId: "", transcript: "", draft: null };
+            setState(next);
+            stateRef.current = next;
+            go("story");
+          }}
+        />
+      );
       break;
     case "draft":
       screen = <DraftPlaceholder {...common} onChangeFormat={() => go("mode")} />;
@@ -240,6 +255,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
           state={state}
           headingRef={headingRef}
           onAnother={() => {
+            clearSelection();
             setState(resetForAnotherStory(stateRef.current));
             setSubmitted(false);
             setResumed(false);

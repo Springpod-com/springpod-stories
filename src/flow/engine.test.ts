@@ -126,6 +126,25 @@ describe("validation", () => {
     );
   });
 
+  it("needs a chosen file, then a transcript of at least 20 words, for a voice note or video", () => {
+    const video: FlowState = { ...student, mode: "self", format: "video" };
+    expect(validationError(findQuestion(QUESTIONS, "story"), video)).toBe("media");
+    expect(validationError(findQuestion(QUESTIONS, "story"), { ...video, mediaId: "m1" })).toBeNull();
+    expect(validationError(findQuestion(QUESTIONS, "transcript"), { ...video, mediaId: "m1", transcript: "Too short." })).toBe(
+      "The transcript looks too short. Add anything that's missing.",
+    );
+    const twenty = Array.from({ length: 20 }, () => "word").join(" ");
+    expect(validationError(findQuestion(QUESTIONS, "transcript"), { ...video, mediaId: "m1", transcript: twenty })).toBeNull();
+  });
+
+  it("forgets the chosen file when the way of telling it changes", () => {
+    const chosen: FlowState = { ...student, mode: "self", format: "video", mediaId: "m1", transcript: "Words" };
+    const format = findQuestion(QUESTIONS, "format");
+    if (format.kind !== "single" || !format.set) throw new Error("format is a single choice");
+    expect(format.set(chosen, "write")).toMatchObject({ mediaId: "", transcript: "" });
+    expect(format.set(chosen, "video")).toBe(chosen);
+  });
+
   it("lets optional questions be skipped", () => {
     expect(validationError(findQuestion(QUESTIONS, "org"), initialState)).toBeNull();
     expect(validationError(findQuestion(QUESTIONS, "nowCo"), initialState)).toBeNull();

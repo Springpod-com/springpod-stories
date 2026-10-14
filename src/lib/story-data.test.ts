@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initialState, type FlowState } from "@/flow/state";
-import type { Story } from "@/generated/prisma/client";
-import { draftAnswersSchema, pickDraftAnswers, stateFromStory, storyFields, submissionError } from "./story-data";
+import type { Media, Story } from "@/generated/prisma/client";
+import { draftAnswersSchema, mediaSummary, pickDraftAnswers, stateFromStory, storyFields, submissionError } from "./story-data";
 
 const priya: FlowState = {
   ...initialState,
@@ -48,5 +48,24 @@ describe("story data", () => {
     expect(submissionError({ ...base, parentEmail: "" })).toMatchObject({ questionId: "parent" });
     expect(submissionError({ ...base, channels: { platform: false, website: false, blog: false, social: false } })).toMatchObject({ questionId: "channels" });
     expect(submissionError({ ...base, draft: null })).toMatchObject({ questionId: "draft" });
+  });
+
+  it("needs a usable file and a transcript to send a video (PRD 7)", () => {
+    const base = { ...pickDraftAnswers({ ...priya, format: "video" }), channels: { platform: true, website: false, blog: false, social: false }, email: "priya@example.com", parentEmail: "parent@example.com", terms: true, marketing: false };
+    const words = Array.from({ length: 25 }, () => "word").join(" ");
+    expect(submissionError(base)).toEqual({ questionId: "story", message: "Add your voice note or video" });
+    expect(submissionError(base, undefined, { mediaId: "m1", transcript: "Hi" })).toMatchObject({ questionId: "transcript" });
+    expect(submissionError(base, undefined, { mediaId: "m1", transcript: words })).toBeNull();
+  });
+
+  it("only counts a file that is uploaded and hasn't failed the server checks", () => {
+    const media = (over: Partial<Media>) => ({ id: "m1", status: "ready", transcriptRaw: "Raw", transcriptEdited: null, serverChecks: null, ...over }) as Media;
+    expect(mediaSummary(null)).toEqual({ mediaId: "", transcript: "" });
+    expect(mediaSummary(media({ status: "uploading" }))).toEqual({ mediaId: "", transcript: "" });
+    expect(mediaSummary(media({ status: "processing" }))).toEqual({ mediaId: "m1", transcript: "" });
+    expect(mediaSummary(media({}))).toEqual({ mediaId: "m1", transcript: "Raw" });
+    expect(mediaSummary(media({ transcriptEdited: "Mine" }))).toEqual({ mediaId: "m1", transcript: "Mine" });
+    const failed = { checks: [{ id: "length", label: "Length", state: "fail", detail: "" }], metrics: null };
+    expect(mediaSummary(media({ serverChecks: failed }))).toEqual({ mediaId: "", transcript: "" });
   });
 });

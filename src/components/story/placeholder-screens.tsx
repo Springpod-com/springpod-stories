@@ -1,6 +1,6 @@
 "use client";
 
-// MILESTONE 1 PLACEHOLDERS. Capture, transcript and drafting arrive in milestones 3 to 5.
+// MILESTONE 1 PLACEHOLDER. Drafting arrives in milestone 5.
 // Each screen uses the prototype title and a clearly marked build notice so the flow can be clicked through.
 
 import { Alert, AlertDescription, AlertTitle } from "@springpod/design-system/components/ui/alert";
@@ -29,57 +29,6 @@ function BuildNotice({ milestone, children }: { milestone: number; children: str
       <AlertTitle>Build placeholder (milestone {milestone})</AlertTitle>
       <AlertDescription>{children}</AlertDescription>
     </Alert>
-  );
-}
-
-const MEDIA_SCREEN = {
-  video: { title: "Film your video", milestone: 4, note: "Film now, upload a file, and the video checks go here." },
-  voice: { title: "Record your voice note", milestone: 4, note: "Record now, upload a file, and the voice note checks go here." },
-} as const;
-
-/** Voice note and video capture arrive in milestone 4. */
-export function MediaPlaceholder({ state, onChange, onNext, onChangeFormat, headingRef }: Props) {
-  const screen = MEDIA_SCREEN[state.format === "voice" ? "voice" : "video"];
-  return (
-    <ScreenBody>
-      <QuestionHeading ref={headingRef} title={screen.title} />
-      <BuildNotice milestone={screen.milestone}>{`${screen.note} For now, Continue fills in sample text.`}</BuildNotice>
-      <StickyActions>
-        <Button
-          className="w-full"
-          onClick={() => {
-            const text = sampleStoryText(state);
-            const next = { ...state, written: text, transcript: text, draft: null };
-            onChange(next);
-            onNext(next);
-          }}
-        >
-          Continue
-        </Button>
-        <Button variant="link" size="sm" onClick={onChangeFormat}>
-          Change how I tell it
-        </Button>
-      </StickyActions>
-    </ScreenBody>
-  );
-}
-
-export function TranscriptPlaceholder({ state, onNext, headingRef }: Props) {
-  const kind = state.format === "video" ? "video" : "voice note";
-  return (
-    <ScreenBody>
-      <QuestionHeading
-        ref={headingRef}
-        title="Check your transcript"
-        sub={`We turned your ${kind} into text. Fix anything we misheard, especially names and places.`}
-      />
-      <BuildNotice milestone={4}>The editable transcript goes here.</BuildNotice>
-      <StickyActions>
-        <Button className="w-full" onClick={() => onNext()}>
-          Write up my story
-        </Button>
-      </StickyActions>
-    </ScreenBody>
   );
 }
 
