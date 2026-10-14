@@ -229,7 +229,7 @@ Screen by screen:
 | Checks | 16, 26 | Native `<video>` or `<audio>` preview with controls, `ui/alert` verdict banner (success, warning, destructive), local `CheckList` (`aria-live="polite"`), upload progress row from `ui/file-upload` (`FileUploadItem`), `ui/spinner` while checking. Buttons per PRD 6.5 |
 | Transcript | 17 | `ui/textarea`, word count in mono, `ui/alert` while the transcript is still processing (copy gap) |
 | Write it | (in prototype) | `ui/textarea`, live word count "150 to 400 works best" |
-| Interview | 27 | Local `InterviewChat` with `ChatBubble` and `TypingIndicator` (`aria-live="polite"`), interviewer avatar `ui/avatar` with `BrandIconRocket` on navy, `StoryStrength` (`ui/progress`, Q6), quick replies as `ui/pill`, composer `ui/textarea` plus `ui/button` teal icon button, hint line |
+| Interview | 27 | Local `InterviewChat` with `ChatBubble` and `TypingIndicator` (`aria-live="polite"`), interviewer avatar `ui/avatar` on navy with the package chat glyph (no rocket, decision M1.19), `StoryStrength` (`ui/progress`, Q6), quick replies as `ui/pill`, composer `ui/textarea` plus `ui/button` teal icon button, hint line |
 | Draft and quote | 18 | `ui/input` (headline), `ui/textarea` (story, IBM Plex Serif via the serif token), `FormSelectGroup` single for the three quotes, `QuoteCard` live preview, `ui/input` for own quote (`maxLength` 160), skills as `ui/badge` (Q7), `ui/alert` "New version written" with `ui/button` ghost "Go back to previous version", `ui/button` secondary "Try a different version", `ui/skeleton` while writing |
 | Name display | 19 | `QuoteCard` preview above `FormSelectGroup` single |
 | Show company | 20 | Same as 19 |
@@ -250,7 +250,7 @@ The package has no component for these. Each stays local, imports every primitiv
 
 | Local component | Built from | Searches that found nothing suitable | Request to the design system? |
 |---|---|---|---|
-| `QuoteCard` | Tokens (navy, teal, serif type), `ui/avatar`, `ui/tag` for the trust label, `BrandIconRocket` (white) | "quote testimonial card" | Yes, likely reusable on springpod.com |
+| `QuoteCard` | Tokens (navy, teal, serif type), `ui/avatar`, `ui/tag` for the trust label (no rocket mark, decision M1.19) | "quote testimonial card" | Yes, likely reusable on springpod.com |
 | `ExampleReel`, `ExampleCard` | `ui/play-button`, `ui/video-timer`, `ui/content-type-tag`, `ui/avatar`, `ui/tag`, `ui/progress` | Checked `ui/carousel`: it is a horizontal swipe rail, not a stacked auto-advancing reel | No |
 | `InterviewChat`, `ChatBubble`, `TypingIndicator` | `ui/avatar`, `ui/textarea`, `ui/button`, `ui/pill` | "chat messages conversation with typing indicator" | Yes |
 | `CheckList`, `CheckRow` (pass, warning, fail, pending) | `IconCheckCircle`, `IconWarning`, `ui/spinner`, tokens for success, warning and destructive | "checklist of pass warning fail results" (`ui/contrast-tag` is AA contrast only) | Maybe |
@@ -846,11 +846,11 @@ Decisions made while building:
 | M1.5 | The quote card grows using a 4:5 spacer in a one-cell grid, not `aspect-ratio` alone | Found in testing: as a flex item, an `aspect-ratio` box takes the ratio height as its minimum, so long "now" lines spilled out of the card on the done screen. Playwright now checks every element of the card sits inside its edges |
 | M1.6 | Skill chips use `ui/tag` (teal-light), not `ui/badge` (changes Q7 default) | `ui/badge` is a semantic status label with a hover effect; `ui/tag` is the static category chip and matches the prototype's teal-on-teal colours. It is uppercase, as the package designs it |
 | M1.7 | Example card type chips use `ui/tag` for all three kinds (answers Q9) | `ui/content-type-tag` has fixed labels ("Voice call", "Briefing audio", "Video") with no "Voice note" or "Written" |
-| M1.8 | Icons: package glyphs for mic, video, chat, time, padlock, phone, light mode, eye, mute, security, rocket and back arrow; `lucide-react` only for pen and hand (Q8) | No pen or hand glyph in the package. Both listed for a design system request |
+| M1.8 | Icons: package glyphs for mic, video, chat, time, padlock, phone, light mode, eye, mute, security and back arrow; `lucide-react` only for pen and hand (Q8) | No pen or hand glyph in the package. Both listed for a design system request |
 | M1.9 | Back arrow is the package's `short-arrow-back` glyph, not the prototype's chevron | Nearest shipped glyph |
 | M1.10 | Optional text questions read "Skip" when empty and "Continue" once filled | The prototype switches to "OK" while typing. PRD 18: buttons start with a verb (conflict C13) |
 | M1.11 | Switching "Which best describes you?" away from Springpod student or Working professional clears the experience type it set | The prototype kept the stale value, so the experience screen showed nothing selected but a Continue button (conflict C14) |
-| M1.12 | The quote card's rocket mark is the package's white rocket glyph | The prototype used a PNG of the logo rocket. Say if you want the logo's own rocket instead |
+| M1.12 | Superseded by M1.19 | |
 | M1.13 | Each step is in the URL (`?q=role`). A reload or shared link starts at the start screen | Nothing is stored until milestone 2, which adds resume |
 | M1.14 | The example reel pauses while hovered or focused, and tap, Enter or Space shows the next card | WCAG 2.2.2 may need a visible pause control for content that moves on its own for more than 5 seconds. Flagged for the milestone 8 accessibility pass |
 | M1.15 | Two `springpod-audit-allow` comments, both for `env(safe-area-inset-*)` padding | Keeps the header and pinned button clear of the notch and home bar. These are device insets, not spacing values |
@@ -862,5 +862,12 @@ Checks at sign-off: `pnpm lint` (ESLint, TypeScript, em dash check) clean; `pnpm
 
 New questions:
 
-18. **Pre-commit hook.** Add the package's drift-audit pre-commit hook (M1.2)? (Default: no, CI runs it.)
-19. **Rocket mark.** Package rocket glyph or the logo's rocket on the quote card (M1.12)? (Default: package glyph.)
+18. **Pre-commit hook.** Answered: no. CI runs the audit (M1.20).
+19. **Rocket mark.** Answered: remove the rocket completely (M1.19).
+
+Answers recorded after milestone 1 review:
+
+| # | Decision | Why |
+|---|---|---|
+| M1.19 | No rocket anywhere in the product. Removed from the quote card footer. The interviewer avatar (milestone 3) will use the package chat glyph on navy instead | Owner decision (Q19). Overrides PRD 5.4 ("white rocket mark" in the card footer) and PRD 6.1 ("interviewer avatar is the white rocket on navy"). The Springpod logo in the header is unchanged: it is the brand mark, and the logo rules say never recompose it |
+| M1.20 | No drift-audit pre-commit hook | Owner decision (Q18). CI runs `springpod-audit` on every pull request |

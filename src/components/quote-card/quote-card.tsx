@@ -1,6 +1,5 @@
 import { Avatar, AvatarFallback } from "@springpod/design-system/components/ui/avatar";
 import { Tag } from "@springpod/design-system/components/ui/tag";
-import { IconRocket } from "@springpod/design-system/icons/platform/rocket";
 import { cn } from "@springpod/design-system/lib/utils";
 import { TRUST_LABEL_TEXT, type TrustLabel } from "@/flow/display";
 
@@ -66,7 +65,6 @@ export function QuoteCard({ quote, name, then, now, trust, className }: QuoteCar
             <span className="ds-p5 wrap-anywhere text-brand-grey-300">{then}</span>
             {now && <span className="ds-p5 wrap-anywhere font-medium text-brand-teal-400">Now {now}</span>}
           </span>
-          <IconRocket size={32} aria-hidden className="shrink-0 text-white" />
         </figcaption>
       </div>
     </figure>
