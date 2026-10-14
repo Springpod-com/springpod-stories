@@ -4,7 +4,7 @@ Milestone 0 output. Running document: decisions, conflicts and open questions ar
 
 | | |
 |---|---|
-| Status | Milestone 0 (plan) for review. No app code yet |
+| Status | Milestone 0 approved with the default answers to section 18. Milestone 1 (foundation) built, for review. Log in section 19 |
 | Sources read | `CLAUDE.md`, `docs/PRD.md`, `docs/ai-prompts.md`, `design/README.md`, the prototype (all screens, flow engine, checks, interview, draft, admin) and every PNG in `design/screens/` |
 | Design system | `@springpod/design-system@0.2.0` (public on npm). Ships `springpod-audit` and `springpod-init` as package bins, so `npx springpod-audit src --json` works once installed |
 
@@ -28,6 +28,7 @@ Contents:
 16. Milestone breakdown
 17. Placeholders for PRD section 21 open decisions
 18. New questions for review
+19. Milestone log
 
 ---
 
@@ -823,3 +824,43 @@ None of these block milestone 1 except Q1 to Q3. My proposed default is in brack
 15. **Parent declines.** Story goes to `rejected` with reason "Parent declined", and media is deleted after 30 days. Should the submitter be emailed? (Default: no email, to avoid friction at home; flagged for safeguarding input.)
 16. **Edit after changes requested.** The prototype has no screen for this. (Default: the edit link opens the draft screen with the team's message in a `ui/alert`, then confirm and resubmit.)
 17. **Transcript wait.** If the transcript isn't ready when the person reaches the transcript screen, they wait on a progress state (copy gap). Acceptable, or let them carry on and edit later? (Default: wait; the 90-second target makes this short.)
+
+---
+
+## 19. Milestone log
+
+### Milestone 1: Foundation
+
+What's built: Next.js app with the design system theme, header, the question-config flow engine, chapter progress, back (on-screen and browser), validation on press, start screen with the example reel, every question screen, video and voice guidance, the quote card, and the done screen. Interview, writing, media capture, transcript and drafting are clearly marked placeholders (`Build placeholder (milestone n)`), so the whole flow can be clicked through.
+
+Versions: Next.js 16.4, React 19.3, Tailwind CSS 4.3, `@springpod/design-system` 0.2.0, pnpm 10, Node 22.
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M1.1 | Section 18 defaults accepted ("go") | Your approval |
+| M1.2 | Imported `@springpod/design-system/styles.css` by hand rather than running `springpod-init` | `springpod-init` also writes agent instructions, MCP config and a pre-commit hook. `CLAUDE.md` already holds the rules and CI runs the audit. Say if you want the pre-commit hook |
+| M1.3 | Answer buttons pinned to the package's `mobile` size at every width | The flow is a fixed 520px column, where the package allows pinning. The responsive default switches to 24px light labels on desktop, which is larger than the prototype and wraps the industry tiles badly |
+| M1.4 | Quote sizes 24px, 21px and 18px (IBM Plex Serif, regular) | The type scale has no 26px step; 24px (`text-h5`) is the nearest token. 21px and 18px match `text-content-h3` and `text-content-h4` |
+| M1.5 | The quote card grows using a 4:5 spacer in a one-cell grid, not `aspect-ratio` alone | Found in testing: as a flex item, an `aspect-ratio` box takes the ratio height as its minimum, so long "now" lines spilled out of the card on the done screen. Playwright now checks every element of the card sits inside its edges |
+| M1.6 | Skill chips use `ui/tag` (teal-light), not `ui/badge` (changes Q7 default) | `ui/badge` is a semantic status label with a hover effect; `ui/tag` is the static category chip and matches the prototype's teal-on-teal colours. It is uppercase, as the package designs it |
+| M1.7 | Example card type chips use `ui/tag` for all three kinds (answers Q9) | `ui/content-type-tag` has fixed labels ("Voice call", "Briefing audio", "Video") with no "Voice note" or "Written" |
+| M1.8 | Icons: package glyphs for mic, video, chat, time, padlock, phone, light mode, eye, mute, security, rocket and back arrow; `lucide-react` only for pen and hand (Q8) | No pen or hand glyph in the package. Both listed for a design system request |
+| M1.9 | Back arrow is the package's `short-arrow-back` glyph, not the prototype's chevron | Nearest shipped glyph |
+| M1.10 | Optional text questions read "Skip" when empty and "Continue" once filled | The prototype switches to "OK" while typing. PRD 18: buttons start with a verb (conflict C13) |
+| M1.11 | Switching "Which best describes you?" away from Springpod student or Working professional clears the experience type it set | The prototype kept the stale value, so the experience screen showed nothing selected but a Continue button (conflict C14) |
+| M1.12 | The quote card's rocket mark is the package's white rocket glyph | The prototype used a PNG of the logo rocket. Say if you want the logo's own rocket instead |
+| M1.13 | Each step is in the URL (`?q=role`). A reload or shared link starts at the start screen | Nothing is stored until milestone 2, which adds resume |
+| M1.14 | The example reel pauses while hovered or focused, and tap, Enter or Space shows the next card | WCAG 2.2.2 may need a visible pause control for content that moves on its own for more than 5 seconds. Flagged for the milestone 8 accessibility pass |
+| M1.15 | Two `springpod-audit-allow` comments, both for `env(safe-area-inset-*)` padding | Keeps the header and pinned button clear of the notch and home bar. These are device insets, not spacing values |
+| M1.16 | ESLint 9 with `eslint-config-next` 16 | ESLint 10 is out but untested with the Next config |
+| M1.17 | Playwright reads `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when set | Cloud sessions ship a pre-installed Chromium. CI installs its own |
+| M1.18 | `pickQuotes` and the fallback draft are ported now (with a test) | The draft placeholder uses them so the sharing screens show a real quote card |
+
+Checks at sign-off: `pnpm lint` (ESLint, TypeScript, em dash check) clean; `pnpm test` 25 unit tests pass; `pnpm test:e2e` 19 Playwright tests pass at 390px, 360px and 1440px; `pnpm build` passes; `npx springpod-audit src --json` reports no drift.
+
+New questions:
+
+18. **Pre-commit hook.** Add the package's drift-audit pre-commit hook (M1.2)? (Default: no, CI runs it.)
+19. **Rocket mark.** Package rocket glyph or the logo's rocket on the quote card (M1.12)? (Default: package glyph.)
