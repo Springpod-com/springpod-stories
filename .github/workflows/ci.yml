@@ -47,11 +47,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg for the media worker
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Start local S3 (moto)
         run: |
-          pip install --quiet "moto[server]==5.2.4"
-          nohup moto_server -H 127.0.0.1 -p 4566 > moto.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:4566/ > /dev/null && break; sleep 1; done
+          python -m pip install --quiet "moto[server]==5.2.4"
+          nohup python -m moto.server -H 127.0.0.1 -p 4566 > moto.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:4566/ > /dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:4566/ > /dev/null || { cat moto.log; exit 1; }
           pnpm storage:dev
       - name: Create the test database
         run: PGPASSWORD=wes psql -h localhost -U wes -d wes_dev -c "CREATE DATABASE wes_test"
