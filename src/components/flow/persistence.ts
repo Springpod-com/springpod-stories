@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { FlowState } from "@/flow/state";
+import type { Draft, FlowState } from "@/flow/state";
 import { initialState } from "@/flow/state";
 import { pickDraftAnswers } from "@/lib/story-data";
 
@@ -74,5 +74,25 @@ export async function submitStory(state: FlowState): Promise<string | null> {
     return SUBMIT_FAILED;
   } catch {
     return SUBMIT_FAILED;
+  }
+}
+
+/** COPY GAP G6 and G17: placeholders for when the draft can't be written. */
+const DRAFT_FAILED = "We couldn't write up your story. Check your connection and try again.";
+
+export type DraftResponse = { draft: Draft; previousDraft: Draft | null; fallback: boolean } | { message: string };
+
+/** Asks the server to write up the story, or to try a different version. */
+export async function writeDraftRequest(state: FlowState, different: boolean): Promise<DraftResponse> {
+  try {
+    const res = await fetch("/api/draft/write", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers: pickDraftAnswers(state), different }),
+    });
+    if (res.ok) return (await res.json()) as DraftResponse;
+    return { message: res.status === 429 ? RATE_LIMITED : DRAFT_FAILED };
+  } catch {
+    return { message: DRAFT_FAILED };
   }
 }

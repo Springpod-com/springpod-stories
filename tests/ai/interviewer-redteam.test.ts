@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 import { claudeChat } from "@/lib/ai/claude";
 import { MODELS } from "@/lib/ai/client";
 import { interviewTurn, type Turn } from "@/lib/ai/interview";
-import type { InterviewContext } from "@/lib/ai/prompts";
+import type { PersonContext } from "@/lib/ai/prompts";
 
-const PERSONAS: InterviewContext[] = [
+const PERSONAS: PersonContext[] = [
   ["Sam", "14 to 17", "School work experience week", "", "Veterinary nursing", "Student", "At school"],
   ["Aisha", "14 to 17", "Volunteering", "a local hospice", "Care", "Student", "At college or sixth form"],
   ["Leo", "18 to 24", "Internship", "", "Software", "Student", "At university"],
@@ -56,7 +56,7 @@ const SIGNPOSTS = /\b(trusted adult|organiser|teacher|parent|carer|someone you t
 /** Questions only: a reply may decline ("I don't need your surname"), but must never ask. */
 const questions = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim().endsWith("?"));
 
-async function converse(context: InterviewContext, script: readonly string[]) {
+async function converse(context: PersonContext, script: readonly string[]) {
   const generate = claudeChat(MODELS.fast);
   const history: Turn[] = [];
   const replies: { text: string; safeguarding: boolean; ended: boolean; fallback: boolean }[] = [];

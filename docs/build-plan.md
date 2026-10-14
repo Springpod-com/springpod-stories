@@ -963,3 +963,33 @@ New questions:
 
 23. **A file that's uploaded but not chosen.** The upload starts before the person presses "Use this video". If they leave at that point and come back, the uploaded file counts as chosen. (Default: keep; they see it on the transcript screen and can film again.)
 24. **Media from abandoned drafts.** Files from drafts that are never sent stay until the draft is deleted. This joins Q12 (abandoned drafts), with deletion by the retention sweep in milestone 7. (Default: 30 days, with the drafts.)
+
+### Milestone 5: Draft, quote and consent
+
+Milestone 4 approved on 14 October 2026.
+
+What's built: the story draft written on the server (headline, story, three quote options, pull quote, skills, advice, sector), with the prototype's fallback when the AI can't be used; the draft screen (edit the headline and story, pick one of three quotes or write your own with the card updating live, "Try a different version" and "Go back to previous version"); and the parent or carer flow (email at submit, a page to see the story and decide, and the effect of each decision on the story). The name display, show company, channels, email, confirm and done screens from milestone 1 were checked against the PRD and the reference screens.
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M5.1 | The draft uses `claude-sonnet-5-5` (`AI_MODEL_BALANCED`) at effort `medium`, with structured outputs: the reply must match a schema, then it is tidied (em dashes removed, quotes no longer than 160 characters and without quote marks, at most four skills, the pull quote one of the options). Time limit 60 seconds | `docs/ai-prompts.md` asks for a balanced model and schema-checked JSON. **Not yet run against the real model: no API key here (Q22)** |
+| M5.2 | The draft is written from what the server holds: the answers are saved first, then the interview turns, written story or corrected transcript are read back from the database | The browser can't send a different source from the one that is stored |
+| M5.3 | If the model fails, times out, declines or replies with something unusable, the person's own words become the story and `pickQuotes` picks the quotes, with a placeholder notice (copy gap G6) | `docs/ai-prompts.md` section 2 fallback |
+| M5.4 | "Try a different version" keeps the current draft, with the person's edits, as the previous version. It is saved with the draft, so "Go back to previous version" still works after a reload. "Looks good" and a fresh draft clear it | PRD 8: "restores the last one, including edits" |
+| M5.5 | "Looks good" checks there is a headline, a story and a card quote. The three messages are placeholders (copy gap G19) | The prototype has no checks here, but a story can't go out without these |
+| M5.6 | The parent or carer email goes at submit (PRD 14), except when the story is held for safeguarding: then the team decides first, and the email will be sent when the review is cleared (milestone 6) | A concern raised in the interview might involve home |
+| M5.7 | Opening the parent link shows the story without using the link up; the decision is recorded once, and later answers are ignored. The page never shows an email address | Email scanners open links; PRD 9.3 |
+| M5.8 | "Approve without name" sets the name display to "No name", so the card shows "Anonymous" | PRD 9.1 |
+| M5.9 | A decline rejects the story (audit reason "Parent declined") and marks its media for deletion after 30 days, for the retention job in milestone 7. The young person isn't emailed (Q15 default) | PRD 9.3 |
+| M5.10 | A parent can decide before the young person confirms their email; the story then goes to review once they confirm | Either order works |
+| M5.11 | On the draft screen the headline and story boxes are named for screen readers only, as in the prototype | Matches `design/screens/18-draft-and-quote-picker.png` |
+| M5.12 | Voice note and video transcripts go to the model labelled "Transcript of video:" or "Transcript of voice note:", as in the prototype. Prompt version is now `2026-10-14.2` | The model knows it is reading speech |
+| M5.13 | "Start my story" now waits for the saved draft to finish loading | Found in testing: a quick tap could start over a saved draft |
+
+Checks at sign-off: `pnpm lint` clean; `pnpm test` 126 tests pass (unit and integration, including drafting with a fake model and the whole parent flow); `pnpm test:e2e` 46 Playwright tests pass at 360, 390 and 1440 pixels, including editing the draft, picking and writing quotes, a different version and going back, and a 14 to 17 year old's story approved through the parent link; `pnpm build` passes; `npx springpod-audit src --json` reports no drift.
+
+New questions:
+
+25. **Parent link expiry.** The parent link works for 14 days. If nobody decides in time, the story stays private (`awaiting_parent`). Should the team be able to resend the parent email from the admin? (Default: yes, built with the admin in milestone 6.)

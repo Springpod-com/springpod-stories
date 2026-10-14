@@ -52,10 +52,23 @@ export function validationError(q: Question, s: FlowState): string | null {
     case "transcript":
       return wordCount(s.transcript) >= MIN_TRANSCRIPT_WORDS ? null : "The transcript looks too short. Add anything that's missing.";
     case "draft":
-      return s.draft ? null : "draft";
+      return draftError(s);
     default:
       return null;
   }
+}
+
+/**
+ * The draft needs a headline, a story and a card quote. COPY GAP G19: these three messages are
+ * placeholders; the prototype has no validation on this screen.
+ */
+function draftError(s: FlowState): string | null {
+  const d = s.draft;
+  if (!d) return "draft";
+  if (!d.headline.trim()) return "Add a headline";
+  if (!d.story.trim()) return "Add your story";
+  if (!d.pullQuote.trim()) return "Add a quote for your card";
+  return null;
 }
 
 /** Whether the chosen way of telling the story has enough to write it up. */

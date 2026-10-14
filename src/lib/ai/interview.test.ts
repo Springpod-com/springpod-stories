@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { interviewTurn, MarkerFilter, type Generate, type InterviewEvent, type Turn } from "./interview";
-import { fallbackClosing, MAX_USER_ANSWERS, type InterviewContext } from "./prompts";
+import { fallbackClosing, MAX_USER_ANSWERS, type PersonContext } from "./prompts";
 
-const context: InterviewContext = {
+const context: PersonContext = {
   firstName: "Sam",
   ageBand: "14 to 17",
   expType: "Volunteering",

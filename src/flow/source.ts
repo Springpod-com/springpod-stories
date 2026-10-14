@@ -10,7 +10,8 @@ export function sourceText(s: FlowState): string {
     return s.turns.map((t) => `${t.role === "assistant" ? "Interviewer" : name}: ${t.content}`).join("\n");
   }
   if (s.format === "write") return s.written;
-  return s.transcript;
+  // Labelled as in the prototype, so the model knows it is speech.
+  return `Transcript of ${s.format === "video" ? "video" : "voice note"}:\n${s.transcript}`;
 }
 
 /** Only the person's own words, for picking quotes when drafting falls back. */

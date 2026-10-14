@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { uniqueEmail, expectCardNotClipped, interview, writeStory, heading, pick, answer, startAs, useGoodVideo } from "./helpers";
-import { confirmLinkFor } from "./outbox";
+import { confirmLinkFor, parentLinkFor } from "./outbox";
 
 test.describe("public flow", () => {
   test("start screen shows the example stories and the start button", async ({ page }) => {
@@ -192,7 +192,7 @@ test.describe("public flow", () => {
     await expect(heading(page)).toHaveText("How old are you?");
   });
 
-  test("14 to 17 year olds are asked for a different parent or carer email", async ({ page }) => {
+  test("14 to 17 year olds give a parent or carer email, who then approves the story", async ({ page }, testInfo) => {
     await startAs(page, "Student", "14 to 17", "Amara");
     await pick(page, "School work experience week");
     await answer(page, "Vet practice");
@@ -213,8 +213,26 @@ test.describe("public flow", () => {
     await expect(heading(page)).toHaveText("What's your parent or carer's email?");
     await answer(page, "AMARA@example.com");
     await expect(page.locator("[data-slot=field-error]")).toHaveText("This needs to be a different email from yours");
-    await answer(page, "parent@example.com");
+    const parentEmail = uniqueEmail("parent", testInfo);
+    await answer(page, parentEmail);
     await expect(heading(page)).toHaveText("Almost done. Please confirm.");
+    await page.getByRole("button", { name: /^This is my own experience/ }).click();
+    await page.getByRole("button", { name: "Send my story" }).click();
+    await expect(heading(page)).toHaveText("Thanks, Amara. Your story is in.");
+
+    // The parent or carer gets a link to see the story and decide (PRD 9.1, 14).
+    const link = parentLinkFor(parentEmail);
+    expect(link).toBeTruthy();
+    await page.goto(link!);
+    await expect(heading(page)).toHaveText("Amara would like to share their story");
+    await expect(page.getByText("On Springpod")).toBeVisible();
+    await expect(page.getByText(parentEmail)).toHaveCount(0);
+    await page.getByRole("button", { name: "Approve without name" }).click();
+    await expect(page.locator("[data-decided=approved_anonymous]")).toBeVisible();
+    // Opening the link again shows the decision; it can't be changed.
+    await page.reload();
+    await expect(page.locator("[data-decided=approved_anonymous]")).toBeVisible();
+    await expect(page.locator("figure")).toContainText("Anonymous");
   });
 
   test("people in work are asked about their role, company and industry, and whether to show the company", async ({

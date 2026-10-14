@@ -37,6 +37,7 @@ export const draftAnswersSchema = z.object({
   format: z.enum(["", "interview", "write", "voice", "video"]),
   written: text(12000),
   draft: draftSchema.nullable(),
+  previousDraft: draftSchema.nullable().optional(),
   display: z.enum(["", "first", "initial", "anon"]),
   showCo: z.boolean().nullable(),
 });
@@ -69,6 +70,7 @@ export function pickDraftAnswers(s: FlowState): DraftAnswers {
     format: s.format,
     written: s.written,
     draft: s.draft,
+    previousDraft: s.previousDraft,
     display: s.display,
     showCo: s.showCo,
   };
@@ -167,6 +169,7 @@ export function stateFromStory(story: Story, turns: Turn[] = [], media: MediaSum
           sector: story.sector ?? "",
         }
       : null,
+    previousDraft: draftSchema.safeParse(story.previousDraft).data ?? null,
     display: story.displayChoice ?? "",
     showCo: story.showCompany,
   };

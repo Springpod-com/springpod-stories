@@ -1,5 +1,5 @@
 import "server-only";
-import type { Story } from "@/generated/prisma/client";
+import { Prisma, type Story } from "@/generated/prisma/client";
 import { CHANNELS } from "@/flow/options";
 import { nextStatus } from "@/lib/status";
 import { PROMPT_VERSION } from "@/lib/ai/prompts";
@@ -15,9 +15,9 @@ import {
 } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
-import { emailProvider } from "./email";
+import { emailProvider, type EmailMessage } from "./email";
 import { currentMedia, purgeStoryMedia } from "./media";
-import { confirmEmail } from "./email/templates";
+import { confirmEmail, parentConsentEmail } from "./email/templates";
 import { createToken, useToken } from "./tokens";
 
 /**
@@ -38,6 +38,12 @@ const draftIds = async (deviceHash: string) =>
 export async function getDraft(deviceHash: string): Promise<Story | null> {
   return findDraft(deviceHash);
 }
+
+/** Autosaved columns: the answers, plus the one-step previous version of the draft. */
+const draftFields = (answers: DraftAnswers) => ({
+  ...storyFields(answers),
+  ...(answers.previousDraft !== undefined ? { previousDraft: answers.previousDraft ?? Prisma.DbNull } : {}),
+});
 
 export type SaveResult = { saved: true; storyId: string } | { saved: false; reason: "no_age" | "under_14" };
 
@@ -62,11 +68,11 @@ export async function saveDraft(deviceHash: string, answers: DraftAnswers): Prom
 
   const existing = await findDraft(deviceHash);
   if (existing) {
-    await db.story.update({ where: { id: existing.id }, data: storyFields(answers) });
+    await db.story.update({ where: { id: existing.id }, data: draftFields(answers) });
     return { saved: true, storyId: existing.id };
   }
   const story = await db.$transaction(async (tx) => {
-    const created = await tx.story.create({ data: { ...storyFields(answers), deviceIdHash: deviceHash } });
+    const created = await tx.story.create({ data: { ...draftFields(answers), deviceIdHash: deviceHash } });
     await writeAudit(tx, { storyId: created.id, actorType: "submitter", action: "draft_created" });
     return created;
   });
@@ -98,7 +104,7 @@ export async function submitStory(deviceHash: string, submission: Submission): P
   const minor = submission.age === "14 to 17";
   const channels = CHANNELS.map((c) => c.value).filter((c) => submission.channels[c]);
 
-  const { storyId, token, firstName } = await db.$transaction(async (tx) => {
+  const { storyId, token, firstName, parent } = await db.$transaction(async (tx) => {
     const submitter = await tx.submitter.upsert({ where: { email }, create: { email }, update: {} });
     const draft = await tx.story.findFirst({
       where: { deviceIdHash: deviceHash, status: "draft" },
@@ -144,21 +150,42 @@ export async function submitStory(deviceHash: string, submission: Submission): P
     }
 
     const raw = await createToken(tx, { purpose: "confirm_email", storyId: story.id, submitterId: submitter.id });
-    return { storyId: story.id, token: raw, firstName: story.firstName ?? "" };
+    // The parent or carer is asked straight away (PRD 14), unless the story is held for safeguarding:
+    // then the team decides first (build plan M5.6).
+    const parent =
+      minor && status !== "safeguarding_review"
+        ? {
+            token: await createToken(tx, { purpose: "parent_decision", storyId: story.id }),
+            to: submission.parentEmail.trim().toLowerCase(),
+            headline: story.headline ?? "",
+            story: story.story ?? "",
+            pullQuote: story.pullQuote ?? "",
+          }
+        : null;
+    return { storyId: story.id, token: raw, firstName: story.firstName ?? "", parent };
   });
 
   // A file left over from a different way of telling the story isn't kept.
   if (media && submission.format !== "voice" && submission.format !== "video") await purgeStoryMedia([storyId]);
 
   // Sent after the transaction commits. Failures are logged; resend is part of milestone 7 (emails).
-  try {
-    await emailProvider().send(confirmEmail({ to: email, firstName, token }));
-    await writeAudit(db, { storyId, actorType: "system", action: "email_sent", payload: { template: "confirm_email" } });
-  } catch (e) {
-    console.error("Confirm email failed", e);
-    await writeAudit(db, { storyId, actorType: "system", action: "email_failed", payload: { template: "confirm_email" } });
+  await sendLogged(storyId, confirmEmail({ to: email, firstName, token }));
+  if (parent) {
+    const channelLabels = CHANNELS.filter((c) => channels.includes(c.value)).map((c) => c.label);
+    await sendLogged(storyId, parentConsentEmail({ ...parent, firstName, channels: channelLabels }));
   }
   return { ok: true, storyId };
+}
+
+/** Sends an email and records the template name (never the address) in the audit log. */
+async function sendLogged(storyId: string, message: EmailMessage) {
+  try {
+    await emailProvider().send(message);
+    await writeAudit(db, { storyId, actorType: "system", action: "email_sent", payload: { template: message.template } });
+  } catch (e) {
+    console.error(`Email ${message.template} failed`, e);
+    await writeAudit(db, { storyId, actorType: "system", action: "email_failed", payload: { template: message.template } });
+  }
 }
 
 export type ConfirmResult = { ok: true; firstName: string } | { ok: false; reason: "not_found" | "expired" };

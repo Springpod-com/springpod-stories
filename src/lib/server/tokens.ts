@@ -52,3 +52,11 @@ export async function useToken(tx: Tx, raw: string, purpose: TokenPurpose): Prom
   await tx.token.update({ where: { id: token.id }, data: { usedAt: new Date() } });
   return { ok: true, token, firstUse: true };
 }
+
+/** Looks up a token without using it up, for pages that only show something. */
+export async function peekToken(tx: Tx, raw: string, purpose: TokenPurpose): Promise<TokenCheck> {
+  const token = await tx.token.findUnique({ where: { tokenHash: hashToken(raw) } });
+  if (!token || token.purpose !== purpose) return { ok: false, reason: "not_found" };
+  if (token.expiresAt.getTime() < Date.now()) return { ok: false, reason: "expired" };
+  return { ok: true, token, firstUse: !token.usedAt };
+}

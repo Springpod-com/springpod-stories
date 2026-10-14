@@ -41,6 +41,8 @@ export interface FlowState {
   turns: Turn[];
   interviewEnded: boolean;
   draft: Draft | null;
+  /** The version before "Try a different version", for "Go back to previous version" (PRD 8). */
+  previousDraft: Draft | null;
   display: DisplayChoice | "";
   showCo: boolean | null;
   channels: Record<Channel, boolean>;
@@ -69,6 +71,7 @@ export const initialState: FlowState = {
   turns: [],
   interviewEnded: false,
   draft: null,
+  previousDraft: null,
   display: "",
   showCo: null,
   channels: { platform: false, website: false, blog: false, social: false },

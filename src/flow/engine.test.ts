@@ -137,6 +137,16 @@ describe("validation", () => {
     expect(validationError(findQuestion(QUESTIONS, "transcript"), { ...video, mediaId: "m1", transcript: twenty })).toBeNull();
   });
 
+  it("needs a headline, a story and a card quote before the draft is done", () => {
+    const draft = { headline: "H", story: "S", pullQuote: "Q", quoteOptions: ["Q"], skills: [], advice: "", sector: "" };
+    const q = findQuestion(QUESTIONS, "draft");
+    expect(validationError(q, { ...student, draft })).toBeNull();
+    expect(validationError(q, { ...student, draft: null })).toBe("draft");
+    expect(validationError(q, { ...student, draft: { ...draft, headline: " " } })).toBe("Add a headline");
+    expect(validationError(q, { ...student, draft: { ...draft, story: "" } })).toBe("Add your story");
+    expect(validationError(q, { ...student, draft: { ...draft, pullQuote: "" } })).toBe("Add a quote for your card");
+  });
+
   it("forgets the chosen file when the way of telling it changes", () => {
     const chosen: FlowState = { ...student, mode: "self", format: "video", mediaId: "m1", transcript: "Words" };
     const format = findQuestion(QUESTIONS, "format");

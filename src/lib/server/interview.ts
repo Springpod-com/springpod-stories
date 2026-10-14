@@ -1,11 +1,10 @@
 import "server-only";
-import { WHO } from "@/flow/options";
-import { nowText } from "@/flow/display";
-import { firstName, interviewAnswers, MIN_INTERVIEW_ANSWERS } from "@/flow/state";
+import { interviewAnswers, MIN_INTERVIEW_ANSWERS } from "@/flow/state";
 import { claudeChat } from "@/lib/ai/claude";
 import { aiConfigured, MODELS } from "@/lib/ai/client";
 import { interviewTurn, type Generate, type InterviewEvent } from "@/lib/ai/interview";
-import { PROMPT_VERSION, QUICK_REPLIES, type InterviewContext } from "@/lib/ai/prompts";
+import { personContext } from "@/lib/ai/context";
+import { PROMPT_VERSION, QUICK_REPLIES } from "@/lib/ai/prompts";
 import { stateFromStory, toTurns, type DraftAnswers } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { db } from "./db";
@@ -59,15 +58,7 @@ export async function runInterviewTurn(
   }
 
   const state = stateFromStory(story);
-  const context: InterviewContext = {
-    firstName: firstName(state),
-    ageBand: state.age,
-    expType: state.expType,
-    organisation: state.org.trim(),
-    area: state.role.trim() || "an unspecified area",
-    whoLabel: WHO.find((w) => w.value === state.who)?.label ?? "",
-    nowText: nowText(state),
-  };
+  const context = personContext(state);
 
   const storyId = story.id;
 

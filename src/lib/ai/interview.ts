@@ -9,7 +9,7 @@ import {
   interviewerSystem,
   MAX_USER_ANSWERS,
   SAFEGUARDING_MARKER,
-  type InterviewContext,
+  type PersonContext,
 } from "./prompts";
 
 export interface Turn {
@@ -82,7 +82,7 @@ export async function* interviewTurn({
   history,
   generate,
 }: {
-  context: InterviewContext;
+  context: PersonContext;
   history: Turn[];
   generate: Generate | null;
 }): AsyncGenerator<InterviewEvent> {

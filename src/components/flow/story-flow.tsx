@@ -12,7 +12,7 @@ import { StartScreen } from "@/components/start/start-screen";
 import { InterviewScreen } from "@/components/story/interview-screen";
 import { CaptureScreen } from "@/components/media/capture-screen";
 import { TranscriptScreen } from "@/components/media/transcript-screen";
-import { DraftPlaceholder } from "@/components/story/placeholder-screens";
+import { DraftScreen } from "@/components/story/draft-screen";
 import { WriteScreen } from "@/components/story/write-screen";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
 import {
@@ -69,10 +69,14 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
 
   useAutosave(state, !submitted);
 
+  // Start waits for this, so a quick tap can't start over a saved draft.
+  const draftLoad = useRef<Promise<FlowState | null> | null>(null);
   useEffect(() => {
     let cancelled = false;
-    loadDraft().then((saved) => {
+    draftLoad.current = loadDraft();
+    draftLoad.current.then((saved) => {
       if (cancelled || !saved || currentRef.current !== "intro") return;
+      stateRef.current = saved;
       setState(saved);
       setResumed(true);
     });
@@ -141,8 +145,10 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
     [questions, go],
   );
 
-  const start = useCallback(() => {
-    if (!resumed) return void goNext();
+  const start = useCallback(async () => {
+    const saved = resumed || Boolean(await draftLoad.current);
+    if (currentRef.current !== "intro") return;
+    if (!saved) return void goNext();
     go(firstIncompleteId(questions, stateRef.current));
     setShowResumeNotice(true);
   }, [resumed, goNext, go, questions]);
@@ -247,7 +253,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
       );
       break;
     case "draft":
-      screen = <DraftPlaceholder {...common} onChangeFormat={() => go("mode")} />;
+      screen = <DraftScreen {...common} />;
       break;
     case "done":
       screen = (
@@ -256,6 +262,8 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
           headingRef={headingRef}
           onAnother={() => {
             clearSelection();
+            // The saved draft was sent; nothing to resume.
+            draftLoad.current = null;
             setState(resetForAnotherStory(stateRef.current));
             setSubmitted(false);
             setResumed(false);
