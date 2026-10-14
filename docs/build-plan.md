@@ -979,7 +979,7 @@ Decisions made while building:
 | M5.3 | If the model fails, times out, declines or replies with something unusable, the person's own words become the story and `pickQuotes` picks the quotes, with a placeholder notice (copy gap G6) | `docs/ai-prompts.md` section 2 fallback |
 | M5.4 | "Try a different version" keeps the current draft, with the person's edits, as the previous version. It is saved with the draft, so "Go back to previous version" still works after a reload. "Looks good" and a fresh draft clear it | PRD 8: "restores the last one, including edits" |
 | M5.5 | "Looks good" checks there is a headline, a story and a card quote. The three messages are placeholders (copy gap G19) | The prototype has no checks here, but a story can't go out without these |
-| M5.6 | The parent or carer email goes at submit (PRD 14), except when the story is held for safeguarding: then the team decides first, and the email will be sent when the review is cleared (milestone 6) | A concern raised in the interview might involve home |
+| M5.6 | The parent or carer email goes at submit (PRD 14), except when the story is held for safeguarding: then the team decides first, and the email will be sent when the review is cleared (milestone 6). **Confirmed by the product owner, 14 October 2026** | A concern raised in the interview might involve home |
 | M5.7 | Opening the parent link shows the story without using the link up; the decision is recorded once, and later answers are ignored. The page never shows an email address | Email scanners open links; PRD 9.3 |
 | M5.8 | "Approve without name" sets the name display to "No name", so the card shows "Anonymous" | PRD 9.1 |
 | M5.9 | A decline rejects the story (audit reason "Parent declined") and marks its media for deletion after 30 days, for the retention job in milestone 7. The young person isn't emailed (Q15 default) | PRD 9.3 |
@@ -992,4 +992,4 @@ Checks at sign-off: `pnpm lint` clean; `pnpm test` 126 tests pass (unit and inte
 
 New questions:
 
-25. **Parent link expiry.** The parent link works for 14 days. If nobody decides in time, the story stays private (`awaiting_parent`). Should the team be able to resend the parent email from the admin? (Default: yes, built with the admin in milestone 6.)
+25. **Parent link expiry.** The parent link works for 14 days. If nobody decides in time, the story stays private (`awaiting_parent`). Should the team be able to resend the parent email from the admin? (Default: yes, built with the admin in milestone 6.) **Answered: yes, 14 October 2026.**
