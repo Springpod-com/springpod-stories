@@ -1,0 +1,366 @@
+"use client";
+
+import { Alert, AlertDescription, AlertTitle } from "@springpod/design-system/components/ui/alert";
+import { Button } from "@springpod/design-system/components/ui/button";
+import { Card } from "@springpod/design-system/components/ui/card";
+import { cn } from "@springpod/design-system/lib/utils";
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { QuoteCard } from "@/components/quote-card/quote-card";
+import { StartScreen } from "@/components/start/start-screen";
+import { cardLines, displayName, previewTrust } from "@/flow/display";
+import {
+  chapterName,
+  chapterProgress,
+  findQuestion,
+  firstIncompleteId,
+  nextId,
+  prevId,
+  reachableId,
+} from "@/flow/engine";
+import { QUESTIONS, type Question } from "@/flow/questions";
+import { initialState, resetForAnotherStory, type FlowState } from "@/flow/state";
+import { entrySource, track } from "@/lib/track";
+import { ChapterProgress } from "./chapter-progress";
+import { clearDraft, loadDraft, submitStory, useAutosave } from "./persistence";
+import { MultiChoiceScreen, SingleChoiceScreen, StopScreen, TextScreen } from "./question-screens";
+
+// Screens further into the flow load separately, so the start screen stays light (PRD 17). They are
+// fetched once the start screen is idle, so each is ready (and takes focus) by the time it's reached.
+const LATER = {
+  guide: () => import("@/components/media/guide-screen").then((m) => m.GuideScreen),
+  capture: () => import("@/components/media/capture-screen").then((m) => m.CaptureScreen),
+  transcript: () => import("@/components/media/transcript-screen").then((m) => m.TranscriptScreen),
+  interview: () => import("@/components/story/interview-screen").then((m) => m.InterviewScreen),
+  write: () => import("@/components/story/write-screen").then((m) => m.WriteScreen),
+  draft: () => import("@/components/story/draft-screen").then((m) => m.DraftScreen),
+  done: () => import("@/components/done/done-screen").then((m) => m.DoneScreen),
+};
+const GuideScreen = dynamic(LATER.guide, { ssr: false });
+const CaptureScreen = dynamic(LATER.capture, { ssr: false });
+const TranscriptScreen = dynamic(LATER.transcript, { ssr: false });
+const InterviewScreen = dynamic(LATER.interview, { ssr: false });
+const WriteScreen = dynamic(LATER.write, { ssr: false });
+const DraftScreen = dynamic(LATER.draft, { ssr: false });
+const DoneScreen = dynamic(LATER.done, { ssr: false });
+
+/** Forgets a chosen file. The media code loads with the capture screen, so only if it has. */
+const clearSelection = () => void import("@/lib/media/media-store").then((m) => m.clearSelection());
+
+function prefetchLaterScreens() {
+  const load = () => Object.values(LATER).forEach((get) => void get());
+  if ("requestIdleCallback" in window) window.requestIdleCallback(load, { timeout: 4000 });
+  else setTimeout(load, 2000);
+}
+
+const STEP_PARAM = "q";
+
+/** Marks history entries this flow pushed, so the on-screen back arrow can use the browser's history. */
+interface StepHistoryState {
+  wesStep: string;
+  wesIndex: number;
+}
+
+function stepUrl(id: string) {
+  const url = new URL(window.location.href);
+  if (id === "intro") url.searchParams.delete(STEP_PARAM);
+  else url.searchParams.set(STEP_PARAM, id);
+  return url.pathname + url.search;
+}
+
+/** The tracking for a finished screen (PRD 16). Only fixed options are sent, never what people typed. */
+function trackAnswer(q: Question, s: FlowState, next: string) {
+  if (!q.chapter) return;
+  const value = q.kind === "single" ? q.get(s) : undefined;
+  track("question_answered", { question: q.id, chapter: q.chapter, ...(value ? { value } : {}) });
+  if (q.id === "mode" && value) track("mode_selected", { value });
+  if (q.id === "format" && value) track("format_selected", { value });
+  if (next === "stop") track("story_blocked_under14", {});
+  if (q.kind === "confirm") {
+    track("story_submitted", { mode: s.mode, format: s.format, age_band: s.age, channels: Object.values(s.channels).filter(Boolean).length });
+  }
+}
+
+/**
+ * The public story flow: one question per screen, driven by the question config.
+ * Answers autosave to the server once an age is given, and a saved draft resumes on this device.
+ */
+export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] }) {
+  const [state, setState] = useState<FlowState>(initialState);
+  const [currentId, setCurrentId] = useState("intro");
+  const [direction, setDirection] = useState<1 | -1>(1);
+  // Screens slide in when moving between them; the first one is there from the start (PRD 17: fast first paint).
+  const [moved, setMoved] = useState(false);
+  const stateRef = useRef(state);
+  const currentRef = useRef(currentId);
+  // The steps this tab has visited, in history order, and where we are in them.
+  const trail = useRef<string[]>(["intro"]);
+  const position = useRef(0);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const firstRender = useRef(true);
+  // A saved draft was found for this device; Start picks up where it left off.
+  const [resumed, setResumed] = useState(false);
+  const [showResumeNotice, setShowResumeNotice] = useState(false);
+  // Once sent, nothing more is saved until "Share another story".
+  const [submitted, setSubmitted] = useState(false);
+
+  useAutosave(state, !submitted);
+  useEffect(prefetchLaterScreens, []);
+
+  // Start waits for this, so a quick tap can't start over a saved draft.
+  const draftLoad = useRef<Promise<FlowState | null> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    draftLoad.current = loadDraft();
+    draftLoad.current.then((saved) => {
+      if (cancelled || !saved || currentRef.current !== "intro") return;
+      stateRef.current = saved;
+      setState(saved);
+      setResumed(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    stateRef.current = state;
+    currentRef.current = currentId;
+  });
+
+  // A reload or a shared link starts at the start screen; Start then resumes any saved draft.
+  useEffect(() => {
+    window.history.replaceState({ wesStep: "intro", wesIndex: 0 } satisfies StepHistoryState, "", stepUrl("intro"));
+    const onPop = (e: PopStateEvent) => {
+      const entry = e.state as StepHistoryState | null;
+      const requested = entry?.wesStep ?? "intro";
+      position.current = entry?.wesIndex ?? 0;
+      const target = reachableId(questions, requested, stateRef.current);
+      trail.current[position.current] = target;
+      setDirection(-1);
+      setMoved(true);
+      setCurrentId(target);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [questions]);
+
+  // Move focus to the new question so screen readers announce it, unless the screen focused an input itself.
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    headingRef.current?.focus();
+    window.scrollTo({ top: 0 });
+  }, [currentId]);
+
+  const go = useCallback((id: string) => {
+    if (id === currentRef.current) return;
+    position.current += 1;
+    trail.current = [...trail.current.slice(0, position.current), id];
+    window.history.pushState({ wesStep: id, wesIndex: position.current } satisfies StepHistoryState, "", stepUrl(id));
+    currentRef.current = id;
+    setDirection(1);
+    setMoved(true);
+    setCurrentId(id);
+    setShowResumeNotice(false);
+  }, []);
+
+  const goNext = useCallback(
+    async (next?: FlowState): Promise<string | null> => {
+      const s = next ?? stateRef.current;
+      stateRef.current = s;
+      const q = findQuestion(questions, currentRef.current);
+      // The confirm screen sends the story before moving on to the done screen.
+      if (q.kind === "confirm") {
+        const failure = await submitStory(s);
+        if (failure) return failure;
+        setSubmitted(true);
+      }
+      const to = nextId(questions, currentRef.current, s);
+      trackAnswer(q, s, to);
+      go(to);
+      return null;
+    },
+    [questions, go],
+  );
+
+  const start = useCallback(async () => {
+    const saved = resumed || Boolean(await draftLoad.current);
+    if (currentRef.current !== "intro") return;
+    track("story_start", { source: entrySource() });
+    if (!saved) return void goNext();
+    go(firstIncompleteId(questions, stateRef.current));
+    setShowResumeNotice(true);
+  }, [resumed, goNext, go, questions]);
+
+  const startAgain = useCallback(() => {
+    void clearDraft();
+    clearSelection();
+    setState(initialState);
+    stateRef.current = initialState;
+    setResumed(false);
+    go(nextId(questions, "intro", initialState));
+  }, [go, questions]);
+
+  const goBack = useCallback(() => {
+    const target = prevId(questions, currentRef.current, stateRef.current);
+    if (target === currentRef.current) return;
+    if (position.current > 0 && trail.current[position.current - 1] === target) {
+      window.history.back();
+      return;
+    }
+    trail.current[position.current] = target;
+    window.history.replaceState(
+      { wesStep: target, wesIndex: position.current } satisfies StepHistoryState,
+      "",
+      stepUrl(target),
+    );
+    currentRef.current = target;
+    setDirection(-1);
+    setMoved(true);
+    setCurrentId(target);
+  }, [questions]);
+
+  const q = findQuestion(questions, currentId);
+  const showTopBar = !["intro", "stop", "done"].includes(q.kind);
+  const common = { state, onChange: setState, onNext: goNext, headingRef };
+
+  let screen: React.ReactNode = null;
+  switch (q.kind) {
+    case "intro":
+      screen = <StartScreen onStart={start} headingRef={headingRef} />;
+      break;
+    case "single":
+      screen = (
+        <SingleChoiceScreen
+          key={q.id}
+          question={q}
+          {...common}
+          preview={
+            q.preview && (
+              <QuoteCard
+                quote={state.draft?.pullQuote ?? ""}
+                name={displayName(state)}
+                trust={previewTrust(state)}
+                {...cardLines(state)}
+                className="max-w-80 self-center"
+              />
+            )
+          }
+        />
+      );
+      break;
+    case "text":
+      screen = <TextScreen key={q.id} question={q} {...common} />;
+      break;
+    case "multi":
+    case "confirm":
+      screen = <MultiChoiceScreen key={q.id} question={q} {...common} />;
+      break;
+    case "stop":
+      screen = <StopScreen onChangeAge={() => go("age")} headingRef={headingRef} />;
+      break;
+    case "guide":
+      screen = <GuideScreen format={state.format === "video" ? "video" : "voice"} onNext={() => goNext()} headingRef={headingRef} />;
+      break;
+    case "story":
+      screen =
+        state.format === "interview" ? (
+          <InterviewScreen
+            state={state}
+            setState={setState}
+            onNext={goNext}
+            onChangeFormat={() => go("mode")}
+            headingRef={headingRef}
+          />
+        ) : state.format === "write" ? (
+          <WriteScreen {...common} onChangeFormat={() => go("mode")} />
+        ) : (
+          <CaptureScreen {...common} onChangeFormat={() => go("mode")} onTips={() => go("guide")} />
+        );
+      break;
+    case "transcript":
+      screen = (
+        <TranscriptScreen
+          {...common}
+          onFilmAgain={() => {
+            track("media_retry", { format: state.format === "voice" ? "voice" : "video", reason: "film_again" });
+            clearSelection();
+            const next = { ...stateRef.current, mediaId: "", transcript: "", draft: null };
+            setState(next);
+            stateRef.current = next;
+            go("story");
+          }}
+        />
+      );
+      break;
+    case "draft":
+      screen = <DraftScreen {...common} />;
+      break;
+    case "done":
+      screen = (
+        <DoneScreen
+          state={state}
+          headingRef={headingRef}
+          onAnother={() => {
+            clearSelection();
+            // The saved draft was sent; nothing to resume.
+            draftLoad.current = null;
+            setState(resetForAnotherStory(stateRef.current));
+            setSubmitted(false);
+            setResumed(false);
+            go("intro");
+          }}
+        />
+      );
+      break;
+  }
+
+  const isIntro = q.kind === "intro";
+
+  return (
+    <main className="mx-auto flex w-full max-w-130 flex-1 flex-col gap-4 px-4 pt-4 pb-0 md:pt-8 md:pb-12">
+      {showResumeNotice && (
+        // COPY GAP G2: placeholder until the resume message is written.
+        <Alert variant="info" data-placeholder>
+          <AlertTitle>Copy needed (G2)</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            <span>Message for people coming back to a saved story goes here.</span>
+            <Button variant="link" size="sm" className="px-0" onClick={startAgain}>
+              Start again
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {showTopBar && (
+        <ChapterProgress
+          chapters={chapterProgress(questions, currentId, state)}
+          current={chapterName(questions, currentId)}
+          onBack={goBack}
+          canGoBack={currentId !== "intro"}
+        />
+      )}
+      <div
+        key={currentId}
+        data-step={currentId}
+        className={cn(
+          "flex flex-1 flex-col md:flex-none",
+          moved && "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300",
+          moved && (direction > 0 ? "motion-safe:slide-in-from-right-4" : "motion-safe:slide-in-from-left-4"),
+        )}
+      >
+        {isIntro ? (
+          <div className="pb-6">{screen}</div>
+        ) : (
+          <Card className="flex flex-1 flex-col rounded-none border-0 bg-transparent shadow-none md:rounded-3xl md:border md:bg-card md:p-8 md:shadow-md">
+            {screen}
+          </Card>
+        )}
+      </div>
+    </main>
+  );
+}

@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wes
+          POSTGRES_PASSWORD: wes
+          POSTGRES_DB: wes_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wes"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://wes:wes@localhost:5432/wes_dev
+      TEST_DATABASE_URL: postgresql://wes:wes@localhost:5432/wes_test
+      APP_URL: http://localhost:3100
+      # Media storage: moto stands in for S3 (the provider is still to be confirmed, build plan Q15).
+      S3_ENDPOINT: http://localhost:4566
+      S3_BUCKET: wes-media-dev
+      S3_REGION: eu-west-2
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      TRANSCRIBE_PROVIDER: fake
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install ffmpeg for the media worker
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start local S3 (moto)
+        run: |
+          python -m pip install --quiet "moto[server]==5.2.4"
+          nohup python -m moto.server -H 127.0.0.1 -p 4566 > moto.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:4566/ > /dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:4566/ > /dev/null || { cat moto.log; exit 1; }
+          pnpm storage:dev
+      - name: Create the test database
+        run: PGPASSWORD=wes psql -h localhost -U wes -d wes_dev -c "CREATE DATABASE wes_test"
+      - run: pnpm db:deploy
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - name: Design system drift audit
+        run: pnpm audit:ds
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
+  images:
+    # Builds the container images (docs/deploy.md) so a broken Dockerfile shows up on the PR. Nothing is pushed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: App image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: app
+          tags: wes-app:ci
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+      - name: Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          tags: wes-worker:ci
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+      - name: Migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          tags: wes-migrate:ci
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
