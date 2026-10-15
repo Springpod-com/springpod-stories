@@ -129,30 +129,49 @@ export async function processMedia(mediaId: string, send: SendJob = sendJob): Pr
       return "failed_checks";
     }
 
-    const normalised = join(dir, "normalised");
-    await ff.normalise(original, normalised, media.kind, limit.maxS);
-    let posterKey: string | null = null;
-    if (p.video) {
-      const posterPath = join(dir, "poster.jpg");
-      await ff.poster(normalised, posterPath, Math.min(limit.maxS, p.durationS ?? 2) * 0.25);
-      await putObject(keys.poster, await readFile(posterPath), "image/jpeg");
-      posterKey = keys.poster;
-    }
+    // The checks, waveform and speech audio are saved first, so the admin shows the checks and the
+    // transcript starts straight away; converting for playback runs alongside (acceptance criterion 7).
     const speech = join(dir, "audio.wav");
     await ff.speechAudio(original, speech, limit.maxS);
-    await putObject(keys.normalised, await readFile(normalised), media.kind === "video" ? "video/mp4" : "audio/mp4");
     await putObject(keys.audio, await readFile(speech), "audio/wav");
     const peaks = waveformPeaks(samples.subarray(0, limit.maxS * ANALYSIS_RATE));
     await putObject(keys.waveform, JSON.stringify(peaks), "application/json");
 
     const stored = await finish(
       media,
-      { serverChecks: result as object, normalisedKey: keys.normalised, posterKey, waveformKey: keys.waveform, ...facts },
+      { serverChecks: result as object, waveformKey: keys.waveform, ...facts },
       "media_checked",
       { verdict: verdict(checks) },
     );
-    if (stored) await send(QUEUES.transcribe, { mediaId: media.id });
+    if (stored) {
+      await send(QUEUES.transcribe, { mediaId: media.id });
+      await send(QUEUES.convert, { mediaId: media.id });
+    }
     return "processed";
+  });
+}
+
+/** Converts a checked file for playback and download (H.264/AAC MP4 or AAC M4A) and takes the poster frame. */
+export async function convertMedia(mediaId: string): Promise<"skipped" | "converted"> {
+  const media = await db.media.findUnique({ where: { id: mediaId } });
+  if (!media || !media.current || media.deletedAt || media.normalisedKey || !["processing", "ready"].includes(media.status)) return "skipped";
+  const keys = mediaKeys(media.storyId, media.id);
+  const limit = LIMITS[media.kind];
+  return withTemp(async (dir) => {
+    const original = join(dir, "original");
+    await downloadToFile(media.storageKey, original);
+    const normalised = join(dir, "normalised");
+    await ff.normalise(original, normalised, media.kind, limit.maxS);
+    let posterKey: string | null = null;
+    if (media.kind === "video") {
+      const posterPath = join(dir, "poster.jpg");
+      await ff.poster(normalised, posterPath, Math.min(limit.maxS, media.durationS ?? 2) * 0.25);
+      await putObject(keys.poster, await readFile(posterPath), "image/jpeg");
+      posterKey = keys.poster;
+    }
+    await putObject(keys.normalised, await readFile(normalised), media.kind === "video" ? "video/mp4" : "audio/mp4");
+    await finish(media, { normalisedKey: keys.normalised, posterKey }, "media_converted", {});
+    return "converted" as const;
   });
 }
 

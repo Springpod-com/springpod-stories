@@ -27,6 +27,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
+  // The 200 MB upload test is opt-in: `pnpm test:upload`.
+  grepInvert: process.env.SLOW_TESTS ? undefined : /@slow/,
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "retain-on-failure",

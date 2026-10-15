@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { Draft, FlowState } from "@/flow/state";
 import { initialState } from "@/flow/state";
-import { pickDraftAnswers } from "@/lib/story-data";
+import { pickDraftAnswers } from "@/lib/draft-answers";
 
 const AUTOSAVE_DELAY_MS = 600;
 

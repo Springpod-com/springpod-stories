@@ -21,7 +21,9 @@
     "test:ai": "RUN_AI_TESTS=1 vitest run --project ai",
     "worker": "tsx --conditions=react-server worker/index.ts",
     "storage:dev": "node scripts/dev-storage.mjs",
-    "staff:add": "tsx --conditions=react-server scripts/add-staff.mts"
+    "staff:add": "tsx --conditions=react-server scripts/add-staff.mts",
+    "lighthouse": "node scripts/lighthouse.mjs",
+    "test:upload": "SLOW_TESTS=1 playwright test tests/e2e/large-upload.spec.ts --project=phone"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
@@ -46,6 +48,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "1.64.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
@@ -55,10 +58,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "chrome-launcher": "^1.2.2",
     "dotenv": "^18.0.7",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.4.0",
     "jsdom": "^30.1.2",
+    "lighthouse": "13.5.0",
     "prisma": "7.10.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",

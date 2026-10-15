@@ -11,6 +11,9 @@ import { sendParentRequest } from "./parent";
 import { sendApprovedEmail } from "./publishing";
 import { staffLabel, type Staff } from "@/lib/staff";
 import { createToken, newRemoveToken } from "./tokens";
+import { trackServer } from "./track";
+
+const statusChanged = (storyId: string, status: StoryStatus) => void trackServer(storyId, "admin_status_changed", { status });
 
 /**
  * The team's review actions (PRD 11.2). Every action re-reads the story, checks the rules on the
@@ -87,7 +90,10 @@ export async function approve(staff: Staff, storyId: string): Promise<ActionResu
     await writeAudit(tx, { storyId, actorType: "staff", actorId: staff.id, action: "approved", payload: { status } });
     return { ok: true, status };
   });
-  if (result.ok) await sendApprovedEmail(storyId);
+  if (result.ok) {
+    statusChanged(storyId, result.status);
+    await sendApprovedEmail(storyId);
+  }
   return result;
 }
 
@@ -108,6 +114,7 @@ export async function requestChanges(staff: Staff, storyId: string, message: str
     return { ok: true as const, status, token, submitterId: s.submitter.id, firstName: s.firstName ?? "" };
   });
   if (!result.ok) return result;
+  statusChanged(storyId, result.status);
   // The address is read here, server side only, to send the email.
   const submitter = await db.submitter.findUniqueOrThrow({ where: { id: result.submitterId }, select: { email: true } });
   await sendLogged(storyId, changesRequestedEmail({
@@ -123,7 +130,7 @@ export async function requestChanges(staff: Staff, storyId: string, message: str
 export async function reject(staff: Staff, storyId: string, reason: string): Promise<ActionResult> {
   const text = reason.trim();
   if (!text) return { ok: false, problem: "reason_required" };
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx): Promise<ActionResult> => {
     const s = await loadForReview(tx, storyId);
     if (!s) return { ok: false, problem: "not_found" };
     if (!canTransition(s.status, "reject")) return { ok: false, problem: "not_allowed" };
@@ -134,6 +141,8 @@ export async function reject(staff: Staff, storyId: string, reason: string): Pro
     await writeAudit(tx, { storyId, actorType: "staff", actorId: staff.id, action: "rejected", payload: { status, reason: text } });
     return { ok: true, status };
   });
+  if (result.ok) statusChanged(storyId, result.status);
+  return result;
 }
 
 /**
@@ -149,7 +158,8 @@ export async function clearSafeguarding(staff: Staff, storyId: string): Promise<
       data: { resolvedAt: new Date(), resolvedBy: staffLabel(staff) },
     });
     let status = s.status;
-    if (s.status === "safeguarding_review") {
+    const held = s.status === "safeguarding_review";
+    if (held) {
       status = nextStatus(s.status, "safeguarding_cleared", {
         parentPending: s.consent?.parentStatus === "pending",
         emailPending: !s.submitter?.emailConfirmedAt,
@@ -157,12 +167,13 @@ export async function clearSafeguarding(staff: Staff, storyId: string): Promise<
       await tx.story.update({ where: { id: storyId }, data: { status } });
     }
     await writeAudit(tx, { storyId, actorType: "staff", actorId: staff.id, action: "safeguarding_cleared", payload: { status } });
-    return { ok: true as const, status };
+    return { ok: true as const, status, held };
   });
+  if (result.ok && result.held) statusChanged(storyId, result.status);
   if (result.ok && (await db.token.count({ where: { storyId, purpose: "parent_decision" } })) === 0) {
     await sendParentRequest(storyId, { type: "staff", id: staff.id });
   }
-  return result;
+  return result.ok ? { ok: true, status: result.status } : result;
 }
 
 /** Sends the parent or carer a new link (Q25), for when the first one expired or went astray. */

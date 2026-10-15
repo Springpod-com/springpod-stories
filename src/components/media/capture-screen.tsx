@@ -12,6 +12,7 @@ import { QuestionHeading, ScreenBody, StickyActions, ValidationMessage } from "@
 import type { FlowState } from "@/flow/state";
 import type { Check, MediaKind } from "@/lib/media/checks";
 import { verdict as verdictOf } from "@/lib/media/checks";
+import { track } from "@/lib/track";
 import { chooseFile, chosenMediaId, clearSelection, retryUpload, useMediaSelection } from "@/lib/media/media-store";
 import type { MediaView } from "@/lib/media/schema";
 import { fetchMedia } from "@/lib/media/upload";
@@ -71,6 +72,12 @@ export function CaptureScreen({ state, onChange, onNext, onChangeFormat, onTips,
   const selection = useMediaSelection();
   const captureInput = useRef<HTMLInputElement>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const dropzone = useRef<HTMLDivElement>(null);
+  // The dropzone is the control; its hidden file input shouldn't be a second one inside it
+  // (design system issue logged in the build plan). The dropzone still opens it on click.
+  useEffect(() => {
+    dropzone.current?.querySelector("input[type=file]")?.setAttribute("inert", "");
+  });
   const hintId = useId();
   const errorId = useId();
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +94,17 @@ export function CaptureScreen({ state, onChange, onNext, onChangeFormat, onTips,
       live = false;
     };
   }, [current, state.mediaId]);
+
+  // Tracked once per chosen file, when its checks finish (PRD 16).
+  const trackedSeq = useRef<number | null>(null);
+  useEffect(() => {
+    if (!current || current.checking || !current.verdict || trackedSeq.current === current.seq) return;
+    trackedSeq.current = current.seq;
+    const failed = current.checks.filter((c) => c.state === "fail").map((c) => c.id);
+    track("media_checks_result", { format: kind, verdict: current.verdict, failed: failed.join(",") });
+  }, [current, kind]);
+
+  const retry = (reason: "fail" | "warn" | "pass" | "different_file") => track("media_retry", { format: kind, reason });
 
   const pick = (files: FileList | File[] | null) => {
     const file = files?.[0];
@@ -162,6 +180,7 @@ export function CaptureScreen({ state, onChange, onNext, onChangeFormat, onTips,
             {copy.captureHint}
           </span>
           <FileUpload
+            ref={dropzone}
             accept={copy.uploadAccept}
             label="Upload a file"
             hint="From your phone or computer"
@@ -234,10 +253,23 @@ export function CaptureScreen({ state, onChange, onNext, onChangeFormat, onTips,
           <ValidationMessage id={errorId} message={error ?? uploadError} />
           {result === "fail" ? (
             <>
-              <Button className="w-full" onClick={() => captureInput.current?.click()}>
+              <Button
+                className="w-full"
+                onClick={() => {
+                  retry("fail");
+                  captureInput.current?.click();
+                }}
+              >
                 {copy.again}
               </Button>
-              <Button variant="link" size="sm" onClick={() => uploadInput.current?.click()}>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => {
+                  retry("different_file");
+                  uploadInput.current?.click();
+                }}
+              >
                 Upload a different file
               </Button>
             </>
@@ -250,6 +282,7 @@ export function CaptureScreen({ state, onChange, onNext, onChangeFormat, onTips,
                 variant="link"
                 size="sm"
                 onClick={() => {
+                  retry(result ?? "pass");
                   if (!current) clearSelection();
                   captureInput.current?.click();
                 }}

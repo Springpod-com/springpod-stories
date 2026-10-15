@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { answer, chooseMedia, heading, pick, startAs, uniqueEmail, chooseGoodVideo } from "./helpers";
+import { answer, chooseMedia, heading, pick, sentEvents, startAs, uniqueEmail, chooseGoodVideo } from "./helpers";
 
 /** Answers the questions before the story, choosing a voice note or video. */
 async function reachCapture(page: Page, format: "Video" | "Voice note") {
@@ -56,8 +56,14 @@ test.describe("voice notes and videos (PRD 6.3, 7)", () => {
     await expect(check(page, "length")).toContainText("is a bit short. Aim for at least 10 seconds");
     await expect(page.getByRole("button", { name: "Use this video" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Film again" })).toBeVisible();
+    expect((await sentEvents(page)).filter((e) => e.name === "media_checks_result")).toEqual([
+      { name: "media_checks_result", format: "video", verdict: "fail", failed: "length" },
+    ]);
 
     await page.getByRole("button", { name: "Upload a different file" }).click();
+    expect((await sentEvents(page)).filter((e) => e.name === "media_retry")).toEqual([
+      { name: "media_retry", format: "video", reason: "different_file" },
+    ]);
     await chooseMedia(page, "dark-video.webm");
     await expect(page.locator("[data-verdict=warn]")).toContainText("Good to go.");
     await expect(check(page, "light")).toContainText("It looks dark. Face a window or turn on a light in front of you.");

@@ -14,6 +14,7 @@ import {
   type SubmissionError,
 } from "@/lib/story-data";
 import { writeAudit } from "./audit";
+import { trackServer } from "./track";
 import { db } from "./db";
 import { currentMedia, purgeStoryMedia } from "./media";
 import { confirmEmail } from "./email/templates";
@@ -164,17 +165,19 @@ export type ConfirmResult = { ok: true; firstName: string } | { ok: false; reaso
 
 /** The confirm link (PRD 14). Safe to open more than once. */
 export async function confirmStoryEmail(rawToken: string): Promise<ConfirmResult> {
-  return db.$transaction(async (tx) => {
+  let confirmed: string | null = null;
+  const result = await db.$transaction(async (tx): Promise<ConfirmResult> => {
     const check = await useToken(tx, rawToken, "confirm_email");
     if (!check.ok) return { ok: false, reason: check.reason };
     const { storyId, submitterId } = check.token;
     if (!storyId || !submitterId) return { ok: false, reason: "not_found" };
 
     const story = await tx.story.findUniqueOrThrow({ where: { id: storyId }, include: { consent: true } });
-    await tx.submitter.updateMany({
+    const { count } = await tx.submitter.updateMany({
       where: { id: submitterId, emailConfirmedAt: null },
       data: { emailConfirmedAt: new Date() },
     });
+    if (count) confirmed = story.id;
     if (story.status === "awaiting_email") {
       const status = nextStatus(story.status, "email_confirmed", {
         parentPending: story.consent?.parentStatus === "pending",
@@ -184,4 +187,6 @@ export async function confirmStoryEmail(rawToken: string): Promise<ConfirmResult
     }
     return { ok: true, firstName: story.firstName ?? "" };
   });
+  if (confirmed) void trackServer(confirmed, "email_confirmed", {});
+  return result;
 }

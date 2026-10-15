@@ -33,7 +33,7 @@ function OptionContent({ option }: { option: Option }) {
       )}
       <span className="flex min-w-0 flex-col gap-1">
         <span>{option.label}</span>
-        {option.description && <span className="ds-p4 opacity-80">{option.description}</span>}
+        {option.description && <span className="ds-p4">{option.description}</span>}
       </span>
     </>
   );

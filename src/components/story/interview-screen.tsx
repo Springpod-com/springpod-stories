@@ -10,7 +10,7 @@ import { useCallback, useEffect, useId, useRef, useState, type Dispatch, type Re
 import { QuestionHeading, ScreenBody, StickyActions, ValidationMessage } from "@/components/flow/layout";
 import { interviewAnswers, MIN_INTERVIEW_ANSWERS, type FlowState, type Turn } from "@/flow/state";
 import { QUICK_REPLIES } from "@/lib/ai/prompts";
-import { pickDraftAnswers } from "@/lib/story-data";
+import { pickDraftAnswers } from "@/lib/draft-answers";
 import { StoryStrength } from "./story-strength";
 
 /** COPY GAP G5 and G17: placeholders until the error copy is written. */

@@ -80,3 +80,14 @@ export async function chooseGoodVideo(page: Page) {
   await expect(heading(page)).toHaveText("Check your transcript");
   await expect(page.getByRole("textbox")).toHaveValue(/children's ward/, { timeout: 60_000 });
 }
+
+type Sent = { name: string } & Record<string, unknown>;
+
+/** What the flow put in the data layer for GA4 (PRD 16). */
+export const sentEvents = (page: Page) =>
+  page.evaluate(() =>
+    (window.dataLayer ?? [])
+      .map((entry) => Array.from(entry as ArrayLike<unknown>))
+      .filter((entry) => entry[0] === "event")
+      .map((entry) => ({ name: entry[1] as string, ...(entry[2] as object) })),
+  ) as Promise<Sent[]>;

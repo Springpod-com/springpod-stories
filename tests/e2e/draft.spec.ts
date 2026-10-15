@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { answer, heading, pick, startAs, writeStory } from "./helpers";
+import { answer, expectCardNotClipped, heading, pick, startAs, writeStory } from "./helpers";
 
 /** Writes a story, then waits for the draft. There is no API key in tests, so the fallback draft is used. */
 async function reachDraft(page: Page) {
@@ -63,5 +63,18 @@ test.describe("the draft (PRD 8)", () => {
     await page.getByRole("button", { name: "Back" }).click();
     await expect(heading(page)).toHaveText("Here's your story. Does it sound like you?");
     await expect(page.getByLabel("Headline")).toHaveValue("Kept after reload");
+  });
+});
+
+test.describe("the quote card @layout", () => {
+  test("a 160-character quote sets at 18px and never clips (acceptance criterion 11)", async ({ page }) => {
+    const quote = "The moment I presented our findings to the whole team and someone asked me a follow-up question, I realised they actually trusted what I had to say about it all";
+    expect(quote).toHaveLength(160);
+    await reachDraft(page);
+    await page.getByLabel("Or edit it").fill(quote);
+    const card = page.locator("figure[data-size]");
+    await expect(card).toHaveAttribute("data-size", "long");
+    await expect(card.getByText(quote)).toHaveCSS("font-size", "18px");
+    await expectCardNotClipped(card);
   });
 });

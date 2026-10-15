@@ -18,6 +18,7 @@ import { writeAudit } from "./audit";
 import { db } from "./db";
 import { QUEUES, sendJob, type SendJob } from "./jobs";
 import { presignRead } from "./storage";
+import { trackServer } from "./track";
 
 /**
  * Content packs (PRD 12). Made on request by staff with the content role, from a story in review
@@ -82,6 +83,7 @@ export async function generateContentPack(
   });
   // The quote card images are drawn by the worker (headless Chromium).
   await send(QUEUES.quoteCards, { storyId });
+  void trackServer(storyId, "content_pack_generated", { kinds: Object.keys(assets).join(",") });
   return { ok: true, fallback };
 }
 

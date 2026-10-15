@@ -17,11 +17,13 @@ pnpm worker       # background jobs: media, pre-screen, quote card images, night
 pnpm staff:add you@springpod.com moderator "Your Name"   # let someone into /admin
 pnpm lint         # ESLint, TypeScript and the em dash check
 pnpm test         # unit, database and storage tests (Vitest; needs TEST_DATABASE_URL, S3_ENDPOINT and ffmpeg)
-pnpm test:e2e     # flow tests (Playwright; starts the app and the worker)
+pnpm test:e2e     # flow, accessibility and layout tests (Playwright; starts the app and the worker)
+bash scripts/make-large-video.sh && pnpm test:upload   # 200 MB upload over throttled 4G (about 6 minutes)
+pnpm lighthouse http://localhost:3000   # Lighthouse mobile scores, against `pnpm build && pnpm start`
 pnpm audit:ds     # design system drift audit
 ```
 
-Build progress, decisions and open questions are in `docs/build-plan.md`.
+Build progress, decisions and open questions are in `docs/build-plan.md`. The acceptance report is `docs/acceptance.md`, and the real phone tests still to run are in `docs/device-tests.md`.
 
 ## Build pack
 

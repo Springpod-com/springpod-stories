@@ -39,14 +39,15 @@ export async function sendStory(page: Page, info: TestInfo, { video = false, age
   await page.getByRole("button", { name: /^On Springpod/ }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await answer(page, email);
-  if (age === "14 to 17") await answer(page, uniqueEmail("parent", info));
+  const parentEmail = uniqueEmail("parent", info);
+  if (age === "14 to 17") await answer(page, parentEmail);
   await page.getByRole("button", { name: /^This is my own experience/ }).click();
   await page.getByRole("button", { name: "Send my story" }).click();
   await expect(heading(page)).toContainText("Your story is in.");
   // The pre-screen runs in the worker; the confirm link works whenever it is opened.
   await page.goto(confirmLinkFor(email)!);
   await expect(heading(page)).toHaveText("Email confirmed");
-  return { headline, email };
+  return { headline, email, parentEmail };
 }
 
 export async function openStory(page: Page, headline: string) {

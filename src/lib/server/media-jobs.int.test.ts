@@ -6,7 +6,7 @@ import { pickDraftAnswers } from "@/lib/story-data";
 import { db } from "./db";
 import type { SendJob } from "./jobs";
 import { mediaKeys } from "./media";
-import { giveUp, processMedia, transcribeMedia, type ServerResult } from "./media-jobs";
+import { convertMedia, giveUp, processMedia, transcribeMedia, type ServerResult } from "./media-jobs";
 import { saveDraft } from "./stories";
 import { getObjectText, objectSize, putObject } from "./storage";
 import { fakeTranscriber, FAKE_TRANSCRIPT_LINES } from "./transcribe/fake";
@@ -36,7 +36,9 @@ describe("media worker (PRD 7.2)", () => {
     const media = await uploaded("good-video.webm", "video");
     const send = vi.fn<SendJob>(async () => undefined);
     expect(await processMedia(media.id, send)).toBe("processed");
+    // Transcribing and converting run side by side once the checks are saved (acceptance criterion 7).
     expect(send).toHaveBeenCalledWith("media-transcribe", { mediaId: media.id });
+    expect(send).toHaveBeenCalledWith("media-convert", { mediaId: media.id });
 
     const after = await db.media.findUniqueOrThrow({ where: { id: media.id } });
     expect(after).toMatchObject({ status: "processing", width: 720, height: 1280 });
@@ -56,12 +58,16 @@ describe("media worker (PRD 7.2)", () => {
     expect(metrics.blur).toBeGreaterThanOrEqual(0);
 
     const keys = mediaKeys(media.storyId, media.id);
-    expect(after).toMatchObject({ normalisedKey: keys.normalised, posterKey: keys.poster, waveformKey: keys.waveform });
+    expect(after).toMatchObject({ normalisedKey: null, waveformKey: keys.waveform });
+    // Transcribed before the conversion finishes: ready for the person, still converting for playback.
+    expect(await transcribeMedia(media.id, fakeTranscriber)).toBe("transcribed");
+    expect(await convertMedia(media.id)).toBe("converted");
+    expect(await convertMedia(media.id)).toBe("skipped");
+    expect(await db.media.findUniqueOrThrow({ where: { id: media.id } })).toMatchObject({ normalisedKey: keys.normalised, posterKey: keys.poster });
     expect(await objectSize(keys.normalised)).toBeGreaterThan(1000);
     expect(await objectSize(keys.poster)).toBeGreaterThan(1000);
     expect(JSON.parse(await getObjectText(keys.waveform))).toHaveLength(200);
 
-    expect(await transcribeMedia(media.id, fakeTranscriber)).toBe("transcribed");
     const done = await db.media.findUniqueOrThrow({ where: { id: media.id } });
     expect(done).toMatchObject({ status: "ready", transcriptRaw: FAKE_TRANSCRIPT_LINES.join(" ") });
     expect(done.transcriptSegments).toHaveLength(FAKE_TRANSCRIPT_LINES.length);
@@ -94,6 +100,7 @@ describe("media worker (PRD 7.2)", () => {
   it("checks voice notes with the voice rules", async () => {
     const good = await uploaded("good-voice.ogg", "voice");
     expect(await processMedia(good.id, vi.fn())).toBe("processed");
+    expect(await convertMedia(good.id)).toBe("converted");
     expect(verdict((await result(good.id)).checks)).toBe("pass");
     expect((await db.media.findUniqueOrThrow({ where: { id: good.id } })).posterKey).toBeNull();
 

@@ -693,7 +693,8 @@ All mutating routes check origin, validate input with `zod` and are rate limited
 
 | Job | Trigger | Steps | Notes |
 |---|---|---|---|
-| `media-process` | Upload complete | ffprobe (container, codecs, duration, displayed size after rotation, audio track); the same audio stats as the browser (loudness, peak, clipping, silence) from decoded audio; brightness of frames at 25% and 60%; EBU R128 loudness and true peak; blur score; the shared checks. If they pass: convert to H.264/AAC MP4 or AAC M4A (trimmed to the limit), poster frame, waveform JSON, 16 kHz mono WAV for speech to text; then queue `media-transcribe` | A file that fails the server checks isn't converted or transcribed. Built (M4.5) |
+| `media-process` | Upload complete | ffprobe (container, codecs, duration, displayed size after rotation, audio track); the same audio stats as the browser (loudness, peak, clipping, silence) from decoded audio; brightness of frames at 25% and 60%; EBU R128 loudness and true peak; blur score; the shared checks. If they pass: waveform JSON and 16 kHz mono WAV for speech to text, save the checks, then queue `media-transcribe` and `media-convert` side by side | A file that fails the server checks isn't converted or transcribed. Built (M4.5, M8.6) |
+| `media-convert` | After `media-process` | Convert to H.264/AAC MP4 or AAC M4A (trimmed to the limit) and take the poster frame | Runs alongside the transcript (M8.6) |
 | `media-transcribe` | After `media-process` | Send the WAV to the transcription adapter; save raw transcript, timed segments and confidence; mark the file `ready` | Built (M4.6) |
 | `story-prescreen` | Submit, resubmit | AI pre-screen on story, transcript and interview turns, plus the regex backstop; write `Flag` rows; route to `safeguarding_review` if needed | |
 | `safeguarding-notify` | Safeguarding flag | Email the safeguarding lead with an admin link and no story content | |
@@ -702,7 +703,7 @@ All mutating routes check origin, validate input with `zod` and are rate limited
 | `email-send` | Any email | Render template, send through the adapter, audit the template name (never the address) | Retries with backoff |
 | `retention-sweep` | Daily cron | Delete media and derived files past `deleteAfter`; mark assets withdrawn; delete expired tokens; delete abandoned drafts (Q12) | Acceptance criterion 12 |
 
-Failed jobs retry three times with backoff. A failed `media-process` then marks the media `failed` and the person is asked for another file; a failed `media-transcribe` marks it `ready` with an empty transcript so the person can type what they said (M4.8). A 250 MB upload never touches the app server.
+Failed jobs retry three times with backoff. A failed `media-process` or `media-convert` then marks the media `failed` and the person is asked for another file; a failed `media-transcribe` marks it `ready` with an empty transcript so the person can type what they said (M4.8). A 250 MB upload never touches the app server.
 
 ---
 
@@ -738,6 +739,8 @@ React Email templates, plain text versions, British English, no em dashes. All s
 
 `src/lib/track.ts` exposes `track(event, payload)`. Development logs to the console; production sends to GA4 (measurement ID from env). Events and payloads exactly as PRD 16. Free text is never sent: the helper takes a typed payload per event, so a free-text field cannot be passed. Funnel steps: start, each chapter, submit, confirmed, approved.
 
+Built in milestone 8: the event list and payload types are in `src/lib/track-events.ts`. In the browser, events go to `window.dataLayer` in the gtag format; GA4 loads only when `NEXT_PUBLIC_GA4_ID` is set, with analytics storage denied until consent is decided (Q31). Server events (`email_confirmed`, `parent_decision`, `admin_status_changed`, `content_pack_generated`) go through `src/lib/server/track.ts` to the GA4 Measurement Protocol when `GA4_MEASUREMENT_ID` and `GA4_API_SECRET` are set, with the story id as GA's client id. "Approved" in the funnel is `admin_status_changed` with status `approved`.
+
 ---
 
 ## 15. Testing and checks
@@ -746,20 +749,20 @@ Run at every milestone sign-off: `pnpm test`, `pnpm test:e2e`, `pnpm lint` (ESLi
 
 | Acceptance criterion | Test |
 |---|---|
-| 1 Screens match prototype | Playwright screenshots at 390px for every screen, compared by eye against `design/screens/` at sign-off |
+| 1 Screens match prototype | Playwright walks every screen at 360, 390 and 1440px (`tests/e2e/a11y.spec.ts`; `SCREENSHOT_DIR=… ` saves screenshots), compared by eye against `design/screens/` at sign-off |
 | 2 Config-driven flow | Vitest on `engine.ts` |
 | 3 Age rules | Playwright (under 14 stop), Vitest on gates |
 | 4 Nothing pre-ticked | Playwright asserts unselected state on channels, confirm and marketing |
 | 5 Browser check thresholds | Vitest, one test per PRD 7.1 row plus undecodable input |
-| 6 Resumable 200 MB upload on throttled 4G | Playwright with network throttling and a forced disconnect, plus a manual phone test |
-| 7 Server results within 2 minutes | Worker integration test with a 90-second fixture video |
+| 6 Resumable 200 MB upload on throttled 4G | `pnpm test:upload` (opt-in): Playwright with 4G throttling and a 20 second disconnect, plus a manual phone test |
+| 7 Server results within 2 minutes | The same opt-in test, timed until the admin shows the checks, transcript and converted video |
 | 8 Approve gating | Playwright on admin |
 | 9 Interviewer red team | AI test suite, behind a flag |
 | 10 Content pack channels | Vitest on the channel mapping |
 | 11 Quote card never clips | Playwright at 18px with a 160-character quote |
 | 12 Emails and withdrawal | Integration test with the console email adapter and the retention job |
 | 13 Build, lint, audit | CI |
-| 14 Lighthouse | Lighthouse CI on the start screen and one question screen |
+| 14 Lighthouse | `pnpm lighthouse` against a production build: the start screen, the broken link page and staff sign-in (question screens can't be opened by URL, so they are covered by the axe checks) |
 
 CI: a GitHub Actions workflow running lint, unit tests, build and the audit on every push (milestone 1).
 
@@ -1062,3 +1065,32 @@ New questions:
 
 29. **Who marks stories as published?** The admin lets any staff member add the published link and email the person. Should it be the content team only? (Default: any staff member.)
 30. **Quote card images for every channel.** M7.3 makes the images for every approved pack. If you'd rather only social media stories get them, say so. (Default: every story.)
+
+### Milestone 8: Polish and acceptance
+
+Milestone 7 approved on 15 October 2026.
+
+What's built: tracking for every PRD 16 event; an accessibility and layout pass over every screen; faster start screen; the media pipeline reordered so results reach the admin within 2 minutes; Lighthouse and a 200 MB upload test; the acceptance report (`docs/acceptance.md`) and a checklist for the real phone tests (`docs/device-tests.md`).
+
+Versions added: `@axe-core/playwright` 4.13.0, `lighthouse` 13.5.0 and `chrome-launcher` 1.2.2 (development only).
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| M8.1 | Tracking events and their payloads are typed in one list (`src/lib/track-events.ts`); answers are sent only for single-choice questions (their fixed values), never text. A Playwright test types distinctive words and checks none of them reach the data layer | PRD 16 |
+| M8.2 | GA4 loads only when `NEXT_PUBLIC_GA4_ID` is set, and only on the public flow, with analytics and ad storage denied by default, so no cookies are set (Q31) | UK cookie rules; most users are young people |
+| M8.3 | Every screen, the email link pages and the admin are checked with axe for WCAG 2.2 AA, for tap targets (44px on touch screens, counting the design system's invisible `ds-touch` area; 24px with a mouse, where links in a sentence are exempt, as WCAG allows) and for sideways scrolling, at 360, 390 and 1440px. Fixes: option descriptions no longer faded (contrast), the start screen's decorative play button made inert (it sat inside the reel's button) | PRD 17 |
+| M8.4 | Design system issues found, to raise with the design system team: the warning colours (`warning-foreground` on `warning`) measure 4.49:1, just under 4.5:1; `FileUpload`'s hidden file input is a second focusable control inside its dropzone with no label (made inert here, and the dropzone still opens the file picker, tested); `AlertTitle` renders an `h5`, which skips heading levels. The checks skip only the warning colour pair, by its exact colours | Fixing them here would mean hard-coded colours or a copy of the component |
+| M8.5 | The start screen: the first example portrait loads straight away with high priority; the avatar portraits go through the image optimiser (AVIF or WebP, tested under 30 KB); the screens further into the flow load separately and are fetched once the start screen is idle; zod and the media code no longer load on the start screen; the first screen no longer fades in (screens still slide in when moving between them) | Lighthouse mobile went from 81 to 88 |
+| M8.6 | The worker saves the server checks and starts the transcript as soon as the checks pass; converting for playback is its own job (`media-convert`) running alongside. Before, the transcript waited for a conversion that takes about 80 seconds for a 200 MB 1080 × 1920 video | Acceptance criterion 7 |
+| M8.7 | The worker needs at least 4 vCPUs. With the test video (90 seconds of 1080 × 1920 noise, the hardest kind of file to convert) on 4 shared cores, the checks, transcript and converted video were all in the admin 119 seconds after the upload finished, inside the 2 minutes but only just. Real phone video converts faster | Acceptance criterion 7 |
+| M8.8 | The 200 MB upload test is opt-in (`bash scripts/make-large-video.sh && pnpm test:upload`), as it takes about 6 minutes; CI runs everything else | Keeps CI quick |
+| M8.9 | Files too big to decode in the browser (the 200 MB video) get a sound tip rather than a check, and the server checks the sound | PRD 7.1: undecodable never fails |
+
+Checks at sign-off: see `docs/acceptance.md`.
+
+New questions:
+
+31. **Cookie consent for GA4.** The PRD points tracking at GA4. Many people using this are under 18, and UK rules need consent before analytics cookies. GA4 is built to start with storage denied (no cookies, pings only), but there is no consent banner in the prototype. Should we add one (copy needed), stay cookieless, or use something else? (Default: cookieless until decided; GA4 stays off until `NEXT_PUBLIC_GA4_ID` is set.)
+32. **Real phone tests.** Acceptance needs the camera, recorder and upload tried on real iPhones (iOS Safari 16 and later) and Android phones (Chrome). Who can run `docs/device-tests.md`? (Default: the product team before launch.)

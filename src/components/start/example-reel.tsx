@@ -6,7 +6,7 @@ import { Progress } from "@springpod/design-system/components/ui/progress";
 import { Tag } from "@springpod/design-system/components/ui/tag";
 import { VideoTimer } from "@springpod/design-system/components/ui/video-timer";
 import { cn } from "@springpod/design-system/lib/utils";
-import Image from "next/image";
+import Image, { getImageProps } from "next/image";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { OptionIcon } from "@/components/flow/option-icon";
 import { EXAMPLES, REEL_INTERVAL_MS, type ExampleKind, type ExampleStory } from "./examples";
@@ -49,10 +49,12 @@ function KindTag({ kind, className }: { kind: ExampleKind; className?: string })
 }
 
 function Person({ example }: { example: ExampleStory }) {
+  // Through the image optimiser, so the avatar is AVIF or WebP at its shown size (PRD 17).
+  const { props: image } = getImageProps({ src: example.portrait, alt: "", width: 40, height: 40 });
   return (
     <div className="flex items-center gap-3">
       <Avatar size="sm" className="size-10">
-        <AvatarImage src={example.portrait} alt="" />
+        <AvatarImage src={image.src} srcSet={image.srcSet} alt="" />
         <AvatarFallback>{example.name.charAt(0)}</AvatarFallback>
       </Avatar>
       <span className="flex min-w-0 flex-col">
@@ -63,16 +65,18 @@ function Person({ example }: { example: ExampleStory }) {
   );
 }
 
-function ExampleCard({ example, active }: { example: ExampleStory; active: boolean }) {
+function ExampleCard({ example, active, first }: { example: ExampleStory; active: boolean; first: boolean }) {
   if (example.kind === "video") {
     return (
       <div className="relative flex h-full flex-col justify-end p-4 text-white">
-        <Image src={example.portrait} alt="" fill sizes="320px" className="-z-10 object-cover object-[center_25%]" />
+        {/* The first card's portrait is the largest thing on the start screen: load it straight away. */}
+        <Image src={example.portrait} alt="" fill sizes="320px" preload={first} fetchPriority={first ? "high" : undefined} className="-z-10 object-cover object-[center_25%]" />
         <div aria-hidden className="absolute inset-0 -z-10 bg-linear-to-b from-brand-navy-800/15 from-30% to-brand-navy-800/85" />
         <KindTag kind="video" className="absolute top-4 left-4" />
         {example.duration && <VideoTimer className="absolute top-4 right-4 font-mono normal-case">{example.duration}</VideoTimer>}
-        {/* Positioned wrapper: the package's elevate styles make the button itself position: relative. */}
-        <span aria-hidden className="pointer-events-none absolute top-2/5 left-1/2 -translate-x-1/2 -translate-y-1/2">
+        {/* Positioned wrapper: the package's elevate styles make the button itself position: relative.
+            Inert, so the decorative play button isn't a control inside the reel's own button. */}
+        <span aria-hidden inert className="pointer-events-none absolute top-2/5 left-1/2 -translate-x-1/2 -translate-y-1/2">
           <PlayButton variant="white" size="md" tabIndex={-1} />
         </span>
         <p className="ds-p4 mb-2 self-start rounded-lg bg-brand-navy-800/55 px-2 py-1 font-medium">{example.quote}</p>
@@ -185,7 +189,7 @@ export function ExampleReel() {
                 POSITION[pos],
               )}
             >
-              <ExampleCard example={example} active={pos === 0} />
+              <ExampleCard example={example} active={pos === 0} first={i === 0} />
             </article>
           );
         })}

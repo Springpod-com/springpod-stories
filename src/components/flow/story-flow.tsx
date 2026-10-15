@@ -5,15 +5,9 @@ import { Button } from "@springpod/design-system/components/ui/button";
 import { Card } from "@springpod/design-system/components/ui/card";
 import { cn } from "@springpod/design-system/lib/utils";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DoneScreen } from "@/components/done/done-screen";
-import { GuideScreen } from "@/components/media/guide-screen";
+import dynamic from "next/dynamic";
 import { QuoteCard } from "@/components/quote-card/quote-card";
 import { StartScreen } from "@/components/start/start-screen";
-import { InterviewScreen } from "@/components/story/interview-screen";
-import { CaptureScreen } from "@/components/media/capture-screen";
-import { TranscriptScreen } from "@/components/media/transcript-screen";
-import { DraftScreen } from "@/components/story/draft-screen";
-import { WriteScreen } from "@/components/story/write-screen";
 import { cardLines, displayName, previewTrust } from "@/flow/display";
 import {
   chapterName,
@@ -26,10 +20,38 @@ import {
 } from "@/flow/engine";
 import { QUESTIONS, type Question } from "@/flow/questions";
 import { initialState, resetForAnotherStory, type FlowState } from "@/flow/state";
-import { clearSelection } from "@/lib/media/media-store";
+import { entrySource, track } from "@/lib/track";
 import { ChapterProgress } from "./chapter-progress";
 import { clearDraft, loadDraft, submitStory, useAutosave } from "./persistence";
 import { MultiChoiceScreen, SingleChoiceScreen, StopScreen, TextScreen } from "./question-screens";
+
+// Screens further into the flow load separately, so the start screen stays light (PRD 17). They are
+// fetched once the start screen is idle, so each is ready (and takes focus) by the time it's reached.
+const LATER = {
+  guide: () => import("@/components/media/guide-screen").then((m) => m.GuideScreen),
+  capture: () => import("@/components/media/capture-screen").then((m) => m.CaptureScreen),
+  transcript: () => import("@/components/media/transcript-screen").then((m) => m.TranscriptScreen),
+  interview: () => import("@/components/story/interview-screen").then((m) => m.InterviewScreen),
+  write: () => import("@/components/story/write-screen").then((m) => m.WriteScreen),
+  draft: () => import("@/components/story/draft-screen").then((m) => m.DraftScreen),
+  done: () => import("@/components/done/done-screen").then((m) => m.DoneScreen),
+};
+const GuideScreen = dynamic(LATER.guide, { ssr: false });
+const CaptureScreen = dynamic(LATER.capture, { ssr: false });
+const TranscriptScreen = dynamic(LATER.transcript, { ssr: false });
+const InterviewScreen = dynamic(LATER.interview, { ssr: false });
+const WriteScreen = dynamic(LATER.write, { ssr: false });
+const DraftScreen = dynamic(LATER.draft, { ssr: false });
+const DoneScreen = dynamic(LATER.done, { ssr: false });
+
+/** Forgets a chosen file. The media code loads with the capture screen, so only if it has. */
+const clearSelection = () => void import("@/lib/media/media-store").then((m) => m.clearSelection());
+
+function prefetchLaterScreens() {
+  const load = () => Object.values(LATER).forEach((get) => void get());
+  if ("requestIdleCallback" in window) window.requestIdleCallback(load, { timeout: 4000 });
+  else setTimeout(load, 2000);
+}
 
 const STEP_PARAM = "q";
 
@@ -46,6 +68,19 @@ function stepUrl(id: string) {
   return url.pathname + url.search;
 }
 
+/** The tracking for a finished screen (PRD 16). Only fixed options are sent, never what people typed. */
+function trackAnswer(q: Question, s: FlowState, next: string) {
+  if (!q.chapter) return;
+  const value = q.kind === "single" ? q.get(s) : undefined;
+  track("question_answered", { question: q.id, chapter: q.chapter, ...(value ? { value } : {}) });
+  if (q.id === "mode" && value) track("mode_selected", { value });
+  if (q.id === "format" && value) track("format_selected", { value });
+  if (next === "stop") track("story_blocked_under14", {});
+  if (q.kind === "confirm") {
+    track("story_submitted", { mode: s.mode, format: s.format, age_band: s.age, channels: Object.values(s.channels).filter(Boolean).length });
+  }
+}
+
 /**
  * The public story flow: one question per screen, driven by the question config.
  * Answers autosave to the server once an age is given, and a saved draft resumes on this device.
@@ -54,6 +89,8 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
   const [state, setState] = useState<FlowState>(initialState);
   const [currentId, setCurrentId] = useState("intro");
   const [direction, setDirection] = useState<1 | -1>(1);
+  // Screens slide in when moving between them; the first one is there from the start (PRD 17: fast first paint).
+  const [moved, setMoved] = useState(false);
   const stateRef = useRef(state);
   const currentRef = useRef(currentId);
   // The steps this tab has visited, in history order, and where we are in them.
@@ -68,6 +105,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
   const [submitted, setSubmitted] = useState(false);
 
   useAutosave(state, !submitted);
+  useEffect(prefetchLaterScreens, []);
 
   // Start waits for this, so a quick tap can't start over a saved draft.
   const draftLoad = useRef<Promise<FlowState | null> | null>(null);
@@ -100,6 +138,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
       const target = reachableId(questions, requested, stateRef.current);
       trail.current[position.current] = target;
       setDirection(-1);
+      setMoved(true);
       setCurrentId(target);
     };
     window.addEventListener("popstate", onPop);
@@ -125,6 +164,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
     window.history.pushState({ wesStep: id, wesIndex: position.current } satisfies StepHistoryState, "", stepUrl(id));
     currentRef.current = id;
     setDirection(1);
+    setMoved(true);
     setCurrentId(id);
     setShowResumeNotice(false);
   }, []);
@@ -133,13 +173,16 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
     async (next?: FlowState): Promise<string | null> => {
       const s = next ?? stateRef.current;
       stateRef.current = s;
+      const q = findQuestion(questions, currentRef.current);
       // The confirm screen sends the story before moving on to the done screen.
-      if (findQuestion(questions, currentRef.current).kind === "confirm") {
+      if (q.kind === "confirm") {
         const failure = await submitStory(s);
         if (failure) return failure;
         setSubmitted(true);
       }
-      go(nextId(questions, currentRef.current, s));
+      const to = nextId(questions, currentRef.current, s);
+      trackAnswer(q, s, to);
+      go(to);
       return null;
     },
     [questions, go],
@@ -148,6 +191,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
   const start = useCallback(async () => {
     const saved = resumed || Boolean(await draftLoad.current);
     if (currentRef.current !== "intro") return;
+    track("story_start", { source: entrySource() });
     if (!saved) return void goNext();
     go(firstIncompleteId(questions, stateRef.current));
     setShowResumeNotice(true);
@@ -177,6 +221,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
     );
     currentRef.current = target;
     setDirection(-1);
+    setMoved(true);
     setCurrentId(target);
   }, [questions]);
 
@@ -243,6 +288,7 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
         <TranscriptScreen
           {...common}
           onFilmAgain={() => {
+            track("media_retry", { format: state.format === "voice" ? "voice" : "video", reason: "film_again" });
             clearSelection();
             const next = { ...stateRef.current, mediaId: "", transcript: "", draft: null };
             setState(next);
@@ -303,8 +349,8 @@ export function StoryFlow({ questions = QUESTIONS }: { questions?: Question[] })
         data-step={currentId}
         className={cn(
           "flex flex-1 flex-col md:flex-none",
-          "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300",
-          direction > 0 ? "motion-safe:slide-in-from-right-4" : "motion-safe:slide-in-from-left-4",
+          moved && "motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300",
+          moved && (direction > 0 ? "motion-safe:slide-in-from-right-4" : "motion-safe:slide-in-from-left-4"),
         )}
       >
         {isIntro ? (

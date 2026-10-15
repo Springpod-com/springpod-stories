@@ -17,6 +17,7 @@ import { findQuestion, validationError } from "@/flow/engine";
 import { QUESTIONS } from "@/flow/questions";
 import type { Draft, FlowState } from "@/flow/state";
 import { MAX_QUOTE_CHARS } from "@/lib/ai/draft";
+import { track } from "@/lib/track";
 
 interface Props {
   state: FlowState;
@@ -48,6 +49,7 @@ export function DraftScreen({ state, onChange, onNext, headingRef }: Props) {
       setWriting(false);
       if ("message" in result) return setFailure(result.message);
       setFallback(result.fallback);
+      track(different ? "draft_regenerated" : "draft_generated", {});
       onChange({ ...state, draft: result.draft, previousDraft: result.previousDraft });
     },
     [state, onChange],
@@ -168,6 +170,8 @@ export function DraftScreen({ state, onChange, onNext, headingRef }: Props) {
           onClick={() => {
             const message = validationError(findQuestion(QUESTIONS, "draft"), state);
             if (message) return setError(message);
+            const picked = draft.quoteOptions.indexOf(draft.pullQuote);
+            track("quote_selected", { option: picked >= 0 ? String(picked) : "custom" });
             const next = { ...state, previousDraft: null };
             onChange(next);
             onNext(next);

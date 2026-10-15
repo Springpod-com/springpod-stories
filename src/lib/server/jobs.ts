@@ -6,8 +6,10 @@ import { PgBoss } from "pg-boss";
  * (its own `pgboss` schema). The web app only sends jobs; `worker/index.ts` runs them.
  */
 export const QUEUES = {
-  /** Server checks, conversion, poster frame and waveform for one uploaded file. */
+  /** Server checks, waveform and speech audio for one uploaded file. */
   process: "media-process",
+  /** Conversion for playback and the poster frame, alongside the transcript. */
+  convert: "media-convert",
   /** Speech to text for one processed file. */
   transcribe: "media-transcribe",
   /** The AI pre-screen of a submitted story (PRD 9.4). */
@@ -28,6 +30,7 @@ export interface StoryJob {
 /** What each queue's jobs carry. */
 export interface JobData {
   "media-process": MediaJob;
+  "media-convert": MediaJob;
   "media-transcribe": MediaJob;
   "story-prescreen": StoryJob;
   "quote-card-render": StoryJob;

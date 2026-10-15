@@ -6,6 +6,7 @@ import { DELETE_MEDIA_AFTER_DAYS, daysFromNow } from "@/lib/retention";
 import { canTransition, nextStatus } from "@/lib/status";
 import { stateFromStory } from "@/lib/story-data";
 import { writeAudit } from "./audit";
+import { trackServer } from "./track";
 import { db } from "./db";
 import { parentConsentEmail } from "./email/templates";
 import { sendLogged } from "./email/send";
@@ -80,7 +81,8 @@ const STATUS_FOR: Record<ParentDecision, Exclude<ParentStatus, "pending" | "not_
  * rejects the story and schedules its media for deletion. A second answer is ignored.
  */
 export async function decideAsParent(rawToken: string, decision: ParentDecision): Promise<ParentDecisionResult> {
-  return db.$transaction(async (tx) => {
+  let decided: string | null = null;
+  const result = await db.$transaction(async (tx): Promise<ParentDecisionResult> => {
     const check = await useToken(tx, rawToken, "parent_decision");
     if (!check.ok) return check;
     const story = check.token.storyId
@@ -112,8 +114,11 @@ export async function decideAsParent(rawToken: string, decision: ParentDecision)
       action: `parent_${parentStatus}`,
       payload: { status, ...(decision === "decline" ? { reason: "Parent declined" } : {}) },
     });
+    decided = story.id;
     return { ok: true, decided: parentStatus, already: false };
   });
+  if (decided) void trackServer(decided, "parent_decision", { decision });
+  return result;
 }
 
 /**
