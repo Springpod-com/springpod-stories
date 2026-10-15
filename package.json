@@ -25,7 +25,8 @@
     "lighthouse": "node scripts/lighthouse.mjs",
     "test:upload": "SLOW_TESTS=1 playwright test tests/e2e/large-upload.spec.ts --project=phone",
     "test:stack": "STACK_URL=http://localhost:3000 playwright test tests/e2e/admin.spec.ts tests/e2e/content.spec.ts tests/e2e/media.spec.ts --project=phone",
-    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.mts"
+    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.mts",
+    "demo:seed:stack": "docker compose --profile stack run --rm migrate node_modules/.bin/tsx --conditions=react-server scripts/demo-seed.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",

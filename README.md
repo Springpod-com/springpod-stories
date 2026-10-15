@@ -26,7 +26,7 @@ pnpm demo:seed    # demo stories in every state, for reviewers (local or staging
 
 ## Containers
 
-`Dockerfile` builds the web app, the worker and the migration step; `docker compose --profile stack up --build` runs them all together locally. Deploying, settings and launch blockers: `docs/deploy.md`.
+`Dockerfile` builds the web app, the worker and the migration step; `docker compose --profile stack up --build -d` runs them all together locally, and `pnpm demo:seed:stack` adds the demo stories. Deploying, settings and launch blockers: `docs/deploy.md`.
 
 Build progress, decisions and open questions are in `docs/build-plan.md`. The acceptance report is `docs/acceptance.md`, and the real phone tests still to run are in `docs/device-tests.md`.
 

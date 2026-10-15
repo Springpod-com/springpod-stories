@@ -94,9 +94,13 @@ The same images, wired together with Compose:
 
 ```bash
 docker compose --profile stack up --build -d   # Postgres, S3 stand-in, migrate, web, worker
-pnpm demo:seed                                 # demo stories in every state (from the host, against the stack's database)
+pnpm demo:seed:stack                           # demo stories in every state, run inside the stack
 open http://localhost:3000                     # admin: /admin, development sign-in as demo.moderator@springpod.com
 ```
+
+`demo:seed:stack` runs the demo script inside Docker, next to the stack's database. Running `pnpm demo:seed` from the Mac instead reaches whatever answers on `localhost:5432`, which is a different database if Postgres is already installed there (the error is `role "wes" does not exist`).
+
+Emails sent by the website and worker appear in `docker compose logs web worker`; the demo script's own emails don't.
 
 To run the Playwright tests against the stack: add `-f tests/stack/compose.yml` to the `up` command (it writes emails to the test outbox), then `pnpm test:stack`.
 
