@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { initialState, type FlowState } from "@/flow/state";
 import type { PrescreenGenerate, PrescreenOutput } from "@/lib/ai/prescreen";
 import { pickDraftAnswers, type Submission } from "@/lib/story-data";
-import { db } from "./db";
+import { db, lockStory } from "./db";
 import { runPrescreen } from "./prescreen";
 import { confirmStoryEmail, submitStory } from "./stories";
 
@@ -114,6 +114,44 @@ describe("pre-screen (PRD 9.4)", () => {
     await confirmStoryEmail(/\/confirm\/([\w-]+)/.exec(text)![1]!);
     expect((await current()).status).toBe("submitted");
     expect(await runPrescreen(id, async () => clean)).toBe("in_review");
+  });
+
+  // The email confirmation and the pre-screen both move a submitted story on. Each locks the story,
+  // so whichever goes second sees what the first did and the story never strands in awaiting_email.
+  const confirmToken = async () => {
+    const dir = process.env.EMAIL_OUTBOX_DIR!;
+    const file = readdirSync(dir).filter((f) => f.endsWith("confirm_email.json")).sort().pop()!;
+    const { text } = JSON.parse(await import("node:fs").then((fs) => fs.readFileSync(`${dir}/${file}`, "utf8"))) as { text: string };
+    return /\/confirm\/([\w-]+)/.exec(text)![1]!;
+  };
+
+  it("an email confirmed while the pre-screen is saving waits for it, then moves the story on", async () => {
+    const id = await submitted();
+    const token = await confirmToken();
+    let confirming: Promise<unknown> = Promise.resolve();
+    await db.$transaction(async (tx) => {
+      // As the pre-screen does: lock, read, then save "awaiting_email".
+      await lockStory(tx, id);
+      confirming = confirmStoryEmail(token);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await tx.story.update({ where: { id }, data: { status: "awaiting_email" } });
+    });
+    await confirming;
+    expect((await db.story.findUniqueOrThrow({ where: { id } })).status).toBe("in_review");
+  });
+
+  it("a pre-screen that runs while the email is being confirmed waits for it, then moves straight to review", async () => {
+    const id = await submitted();
+    let screening: Promise<string> = Promise.resolve("");
+    await db.$transaction(async (tx) => {
+      // As the confirmation does: lock, then record the confirmed email.
+      await lockStory(tx, id);
+      screening = runPrescreen(id, async () => clean);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const story = await tx.story.findUniqueOrThrow({ where: { id } });
+      await tx.submitter.update({ where: { id: story.submitterId! }, data: { emailConfirmedAt: new Date() } });
+    });
+    expect(await screening).toBe("in_review");
   });
 
   it("asks the parent or carer only once the story is cleared", async () => {

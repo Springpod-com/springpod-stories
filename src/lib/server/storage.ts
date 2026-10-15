@@ -20,12 +20,15 @@ import type { Readable } from "node:stream";
  * straight to the bucket with presigned URLs and media is only ever read through signed links.
  *
  * Config: S3_BUCKET, S3_REGION (default eu-west-2), and S3_ENDPOINT for a local stand-in
- * (moto or MinIO). Credentials come from the usual AWS environment or role.
+ * (moto or MinIO). S3_PUBLIC_ENDPOINT, if set, is the address browsers use for signed links when
+ * the servers reach storage at a different one (containers, a private endpoint). Credentials come
+ * from the usual AWS environment or role.
  */
 const config = () => ({
   bucket: process.env.S3_BUCKET ?? "wes-media-dev",
   region: process.env.S3_REGION ?? "eu-west-2",
   endpoint: process.env.S3_ENDPOINT,
+  publicEndpoint: process.env.S3_PUBLIC_ENDPOINT,
 });
 
 let client: S3Client | null = null;
@@ -33,6 +36,15 @@ function s3(): S3Client {
   const { region, endpoint } = config();
   client ??= new S3Client({ region, ...(endpoint ? { endpoint, forcePathStyle: true } : {}) });
   return client;
+}
+
+/** Signs the links browsers use, for the address they can reach. */
+let signingClient: S3Client | null = null;
+function signer(): S3Client {
+  const { region, publicEndpoint } = config();
+  if (!publicEndpoint) return s3();
+  signingClient ??= new S3Client({ region, endpoint: publicEndpoint, forcePathStyle: true });
+  return signingClient;
 }
 
 const bucket = () => config().bucket;
@@ -53,7 +65,7 @@ export async function createMultipartUpload(key: string, contentType: string): P
 }
 
 export function presignUploadPart(key: string, uploadId: string, partNumber: number): Promise<string> {
-  return getSignedUrl(s3(), new UploadPartCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, PartNumber: partNumber }), {
+  return getSignedUrl(signer(), new UploadPartCommand({ Bucket: bucket(), Key: key, UploadId: uploadId, PartNumber: partNumber }), {
     expiresIn: UPLOAD_URL_TTL_S,
   });
 }
@@ -75,7 +87,7 @@ export async function abortMultipartUpload(key: string, uploadId: string) {
 
 export function presignRead(key: string, downloadName?: string, expiresIn = READ_URL_TTL_S): Promise<string> {
   return getSignedUrl(
-    s3(),
+    signer(),
     new GetObjectCommand({
       Bucket: bucket(),
       Key: key,

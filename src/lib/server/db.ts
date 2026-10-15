@@ -27,3 +27,11 @@ export const db = new Proxy({} as PrismaClient, {
 });
 
 export type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
+
+/**
+ * Locks a story's row until the transaction ends, so two steps that move it on (the email
+ * confirmation and the pre-screen, say) can't each miss the other's change.
+ */
+export async function lockStory(tx: Tx, storyId: string) {
+  await tx.$queryRaw`SELECT id FROM "Story" WHERE id = ${storyId} FOR UPDATE`;
+}

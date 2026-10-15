@@ -15,7 +15,7 @@ import {
 } from "@/lib/story-data";
 import { writeAudit } from "./audit";
 import { trackServer } from "./track";
-import { db } from "./db";
+import { db, lockStory } from "./db";
 import { currentMedia, purgeStoryMedia } from "./media";
 import { confirmEmail } from "./email/templates";
 import { sendLogged } from "./email/send";
@@ -171,6 +171,7 @@ export async function confirmStoryEmail(rawToken: string): Promise<ConfirmResult
     if (!check.ok) return { ok: false, reason: check.reason };
     const { storyId, submitterId } = check.token;
     if (!storyId || !submitterId) return { ok: false, reason: "not_found" };
+    await lockStory(tx, storyId);
 
     const story = await tx.story.findUniqueOrThrow({ where: { id: storyId }, include: { consent: true } });
     const { count } = await tx.submitter.updateMany({

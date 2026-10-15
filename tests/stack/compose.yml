@@ -1,0 +1,13 @@
+# Test plumbing for running the Playwright tests against the container stack (`pnpm test:stack`):
+# emails go to the test outbox on the host, and the rate limits are raised as in playwright.config.ts.
+x-test-env: &test-env
+  EMAIL_OUTBOX_DIR: /outbox
+  SUBMIT_RATE_LIMIT: "1000"
+  MEDIA_RATE_LIMIT: "1000"
+services:
+  web:
+    environment: *test-env
+    volumes: ["./.e2e-outbox:/outbox"]
+  worker:
+    environment: *test-env
+    volumes: ["./.e2e-outbox:/outbox"]

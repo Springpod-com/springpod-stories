@@ -23,7 +23,9 @@
     "storage:dev": "node scripts/dev-storage.mjs",
     "staff:add": "tsx --conditions=react-server scripts/add-staff.mts",
     "lighthouse": "node scripts/lighthouse.mjs",
-    "test:upload": "SLOW_TESTS=1 playwright test tests/e2e/large-upload.spec.ts --project=phone"
+    "test:upload": "SLOW_TESTS=1 playwright test tests/e2e/large-upload.spec.ts --project=phone",
+    "test:stack": "STACK_URL=http://localhost:3000 playwright test tests/e2e/admin.spec.ts tests/e2e/content.spec.ts tests/e2e/media.spec.ts --project=phone",
+    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.133.0",
@@ -34,6 +36,7 @@
     "@prisma/client": "7.10.0",
     "@springpod/design-system": "0.2.0",
     "@tailwindcss/postcss": "^4.3.3",
+    "dotenv": "^18.0.7",
     "lucide-react": "0.545.0",
     "next": "16.4.0",
     "next-auth": "5.0.0-beta.32",
@@ -45,6 +48,7 @@
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -59,13 +63,11 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "chrome-launcher": "^1.2.2",
-    "dotenv": "^18.0.7",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.4.0",
     "jsdom": "^30.1.2",
     "lighthouse": "13.5.0",
     "prisma": "7.10.0",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11"
   },

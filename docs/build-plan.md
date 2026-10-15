@@ -1094,3 +1094,33 @@ New questions:
 
 31. **Cookie consent for GA4.** The PRD points tracking at GA4. Many people using this are under 18, and UK rules need consent before analytics cookies. GA4 is built to start with storage denied (no cookies, pings only), but there is no consent banner in the prototype. Should we add one (copy needed), stay cookieless, or use something else? (Default: cookieless until decided; GA4 stays off until `NEXT_PUBLIC_GA4_ID` is set.)
 32. **Real phone tests.** Acceptance needs the camera, recorder and upload tried on real iPhones (iOS Safari 16 and later) and Android phones (Chrome). Who can run `docs/device-tests.md`? (Default: the product team before launch.)
+
+### After milestone 8: launch preparation
+
+Milestone 8 approved on 15 October 2026 ("Start"). The PRD has no milestone 9; you chose launch preparation that doesn't depend on the open decisions.
+
+What's built: a `Dockerfile` with three targets (web, worker with ffmpeg and Chromium, migrate); a Compose stack that runs them together like staging; a health check; security headers; `pnpm demo:seed`; `docs/deploy.md` (settings, the bucket, sizing, release steps, launch blockers and the AWS London sketch); CI now builds the images on every pull request.
+
+Running the Playwright tests against the containers found three bugs, now fixed:
+
+| # | Found | Fix |
+|---|---|---|
+| L1 | Every save was refused in the container build. The cross-site check compared the browser's `Origin` with `request.url`, which in the standalone server is its bind address (`0.0.0.0:3000`), and behind a load balancer would be an internal address | Compare with the requested host (`Host`, `X-Forwarded-Host`) and `APP_URL` instead; unit tests cover the standalone and proxy cases |
+| L2 | A story could get stuck in "awaiting email" for good when the person confirmed in the same few milliseconds as the pre-screen saved its result: each read the story before the other's change | Both lock the story row first (`lockStory`); two integration tests hold the lock the way the other step would and fail without the fix |
+| L3 | The worker couldn't draw quote cards from `http://app:3000`: `.app` is an HSTS-preloaded top-level domain, so Chromium forces HTTPS for a host named `app` | The Compose service is called `web`; `docs/deploy.md` warns about `.app` and `.dev` hosts |
+
+Decisions made while building:
+
+| # | Decision | Why |
+|---|---|---|
+| L4 | The web image runs Next.js's standalone server (about 450 MB); the worker image has production dependencies, ffmpeg and Debian's Chromium (about 3 GB, mostly ffmpeg and Chromium). `tsx` and `dotenv` moved to runtime dependencies, as the worker runs on them | Small web image; worker unchanged from development |
+| L5 | `S3_PUBLIC_ENDPOINT` (optional) signs browser links for a different address from the one the servers use | Containers, private endpoints; not needed on AWS |
+| L6 | `GET /api/health` answers 200 when the database is reachable, for load balancers | |
+| L7 | Security headers on every page: `Referrer-Policy: strict-origin-when-cross-origin` (links carry tokens), `X-Frame-Options: DENY`, `nosniff`, a restrictive `Permissions-Policy`, HSTS. A content security policy is left to do | |
+| L8 | `pnpm demo:seed` sends eight invented stories through the real functions so the admin has one in each state. It refuses anything but a localhost `APP_URL` unless `DEMO_DATA_OK=1`, and only adds stories that aren't there yet | Reviewers see real states without real people |
+| L9 | `pnpm test:stack` runs the admin, content and media Playwright tests against the containers (15 tests, all pass) | Proves the images, not just the code |
+
+New question:
+
+33. **Email provider.** Nothing is emailed until a provider is connected: the console provider prints emails, links included, to the logs. This is the main launch blocker in `docs/deploy.md`. Which provider does Springpod use for transactional email, and who can give us access? (PRD 21.)
+

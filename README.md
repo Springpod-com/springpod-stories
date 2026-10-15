@@ -21,7 +21,12 @@ pnpm test:e2e     # flow, accessibility and layout tests (Playwright; starts the
 bash scripts/make-large-video.sh && pnpm test:upload   # 200 MB upload over throttled 4G (about 6 minutes)
 pnpm lighthouse http://localhost:3000   # Lighthouse mobile scores, against `pnpm build && pnpm start`
 pnpm audit:ds     # design system drift audit
+pnpm demo:seed    # demo stories in every state, for reviewers (local or staging only)
 ```
+
+## Containers
+
+`Dockerfile` builds the web app, the worker and the migration step; `docker compose --profile stack up --build` runs them all together locally. Deploying, settings and launch blockers: `docs/deploy.md`.
 
 Build progress, decisions and open questions are in `docs/build-plan.md`. The acceptance report is `docs/acceptance.md`, and the real phone tests still to run are in `docs/device-tests.md`.
 

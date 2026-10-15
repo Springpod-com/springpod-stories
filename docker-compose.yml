@@ -1,5 +1,8 @@
-# Local Postgres and S3 stand-in for development.
-# `docker compose up -d`, then `pnpm db:migrate` and `pnpm storage:dev`.
+# Local services for development: `docker compose up -d`, then `pnpm db:migrate` and `pnpm storage:dev`.
+#
+# The whole product in containers, built from the Dockerfile, as a staging rehearsal (docs/deploy.md):
+#   docker compose --profile stack up --build
+# Then open http://localhost:3000. Emails (with their links) are printed in `docker compose logs web worker`.
 services:
   postgres:
     image: postgres:16
@@ -11,11 +14,63 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wes"]
+      interval: 2s
+      retries: 30
   s3:
     # moto: an in-memory S3 for development and tests. Files are lost when it stops.
     image: motoserver/moto:5.1.0
     ports:
       - "4566:5000"
+
+  migrate:
+    profiles: [stack]
+    build: { context: ., target: migrate }
+    image: wes-migrate
+    environment: &env
+      DATABASE_URL: postgresql://wes:wes@postgres:5432/wes_dev
+      APP_URL: http://localhost:3000
+      # Servers reach storage inside the network; browsers use the published port.
+      S3_ENDPOINT: http://s3:5000
+      S3_PUBLIC_ENDPOINT: http://localhost:4566
+      S3_BUCKET: wes-media-dev
+      S3_REGION: eu-west-2
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      APP_ORIGINS: http://localhost:3000
+      EMAIL_PROVIDER: console
+      AUTH_SECRET: local-stack-only-not-a-secret
+      ADMIN_DEV_LOGIN: "1"
+      SAFEGUARDING_LEAD_EMAIL: safeguarding.lead@springpod.com
+    # Migrations, then the bucket (with browser upload CORS).
+    command: ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node scripts/dev-storage.mjs"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      s3: { condition: service_started }
+  web:
+    profiles: [stack]
+    build: { context: ., target: app }
+    image: wes-app
+    environment: *env
+    ports:
+      - "3000:3000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+  worker:
+    profiles: [stack]
+    build: { context: ., target: worker }
+    image: wes-worker
+    environment:
+      <<: *env
+      # The worker draws quote cards from the app's render page.
+      # Not "app": Chromium forces https for it, as .app is an HSTS-preloaded top-level domain.
+      RENDER_BASE_URL: http://web:3000
+      # Sample transcripts: fine for a local stack, refused in production.
+      NODE_ENV: development
+      TRANSCRIBE_PROVIDER: fake
+    depends_on:
+      migrate: { condition: service_completed_successfully }
 
 volumes:
   postgres-data:

@@ -5,7 +5,7 @@ import { flagsFrom, patternFindings, prescreenOutputSchema, type PrescreenGenera
 import { prescreenPrompt } from "@/lib/ai/prompts";
 import { canTransition, nextStatus } from "@/lib/status";
 import { writeAudit } from "./audit";
-import { db } from "./db";
+import { db, lockStory } from "./db";
 import { sendLogged } from "./email/send";
 import { safeguardingEmail } from "./email/templates";
 import { sendParentRequest } from "./parent";
@@ -79,6 +79,7 @@ export async function runPrescreen(storyId: string, generate: PrescreenGenerate 
   const flags = flagsFrom(ai, patternFindings(source.text), source.organisation);
 
   const status = await db.$transaction(async (tx) => {
+    await lockStory(tx, storyId);
     const story = await tx.story.findUniqueOrThrow({ where: { id: storyId }, include: { consent: true, submitter: true } });
     await tx.flag.deleteMany({ where: { storyId, source: { in: ["ai", "system"] }, resolvedAt: null, type: { not: "safeguarding" } } });
     // An open safeguarding flag (from the interview, or an earlier run) is kept; don't add a second.

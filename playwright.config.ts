@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 import { OUTBOX_DIR } from "./tests/e2e/outbox";
 
 const PORT = 3100;
+// Set to run against an already running stack, such as the containers (`pnpm test:stack`).
+const STACK_URL = process.env.STACK_URL;
 // Cloud sessions ship a pre-installed Chromium; CI installs its own.
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || undefined;
 
@@ -30,7 +32,7 @@ export default defineConfig({
   // The 200 MB upload test is opt-in: `pnpm test:upload`.
   grepInvert: process.env.SLOW_TESTS ? undefined : /@slow/,
   use: {
-    baseURL: `http://localhost:${PORT}`,
+    baseURL: STACK_URL ?? `http://localhost:${PORT}`,
     trace: "retain-on-failure",
     launchOptions: { executablePath },
   },
@@ -49,7 +51,7 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
     },
   ],
-  webServer: [
+  webServer: STACK_URL ? undefined : [
     {
       command: `pnpm build && pnpm start -p ${PORT}`,
       env: SERVER_ENV,

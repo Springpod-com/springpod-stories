@@ -67,3 +67,34 @@ jobs:
         run: pnpm audit:ds
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+
+  images:
+    # Builds the container images (docs/deploy.md) so a broken Dockerfile shows up on the PR. Nothing is pushed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: App image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: app
+          tags: wes-app:ci
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+      - name: Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          tags: wes-worker:ci
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+      - name: Migrate image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: migrate
+          tags: wes-migrate:ci
+          cache-from: type=gha,scope=migrate
+          cache-to: type=gha,mode=max,scope=migrate
